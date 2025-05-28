@@ -1,20 +1,14 @@
 import os
 import json
 import hashlib
+from crdb_dump.export.schema import collect_objects
+from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 
 
 def verify_checksums(opts, out_dir, logger):
     table_list = opts['tables'].split(',') if opts['tables'] else []
     if not table_list:
-        from crdb_dump.export.schema import collect_objects
-        from sqlalchemy import create_engine
-
-        engine = create_engine(
-            f"cockroachdb://root@{opts['host']}:26257/{opts['db']}"
-            + (f"?sslmode=verify-full&sslrootcert={opts['certs_dir']}/ca.crt"
-               f"&sslcert={opts['certs_dir']}/client.root.crt"
-               f"&sslkey={opts['certs_dir']}/client.root.key" if opts['certs_dir'] else "?sslmode=disable")
-        )
+        engine = get_sqlalchemy_engine(opts)
         table_list = collect_objects(engine, opts['db'], 'table', logger)
 
     failed = 0

@@ -103,7 +103,7 @@ def load(db, schema, data_dir, resume_log, dry_run,
         if not dry_run:
             return
 
-    if schema:
+    if schema and not dry_run:
         load_schema(schema, engine, logger)
 
     include = set(include_tables.split(',')) if include_tables else None

@@ -16,9 +16,11 @@ README.html
 *.iml
 *.log
 *.gfs
+*.idea
 logs/**
 buildNumber.properties
 versions.properties
 **/.DS_Store
 /.idea/
 *.egg-info
+/logs/

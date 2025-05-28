@@ -67,7 +67,7 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                     with open_func(out_path, mode, newline='') as f:
                         writer = csv.writer(f)
                         writer.writerow(columns)
-                        writer.writerows(rows)
+                        writer.writerows([[csv_safe(v) for v in row] for row in rows])
                 elif export_format == 'sql':
                     with open(out_path, 'w') as f:
                         for row in rows:
@@ -143,3 +143,11 @@ def sql_literal(val):
     if isinstance(val, (bytes, bytearray)):
         return f"decode('{val.hex()}', 'hex')"
     return repr(val).replace("'", "''")
+
+
+def csv_safe(val):
+    if isinstance(val, memoryview):
+        return val.tobytes().hex()
+    if isinstance(val, (bytes, bytearray)):
+        return val.hex()
+    return val

@@ -12,6 +12,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -24,12 +25,41 @@ jobs:
           pip install .[test]
           pip install pytest
 
+      - name: Start CockroachDB (latest)
+        run: |
+          docker run -d \
+            --name crdb \
+            -p 26257:26257 \
+            -p 8080:8080 \
+            cockroachdb/cockroach:latest \
+            start-single-node --insecure
+
+      - name: Set CRDB_URL environment variable
+        run: echo "CRDB_URL=cockroachdb://root@localhost:26257/defaultdb?sslmode=disable" >> $GITHUB_ENV
+
+      - name: Wait for DB to be ready
+        run: sleep 5
+
+      - name: Initialize test database
+        run: |
+          docker exec crdb ./cockroach sql --insecure --host=localhost -e "
+            USE defaultdb;
+            CREATE TABLE users (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              name STRING
+            );
+            INSERT INTO users (name) VALUES
+              ('Alice'), ('Bob'), ('Virag'), ('Allen'), ('Andrew'), ('David');
+          "
+
       - name: Build package
         run: python -m build
 
       - name: Install project
-        run: |
-          pip install .
+        run: pip install .
 
-      - name: Run tests
-        run: pytest
+      - name: Run all tests
+        run: pytest -ra -q -m "not integration or integration"
+
+      - name: Check for log file
+        run: test -f logs/crdb_dump.log

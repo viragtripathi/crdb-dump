@@ -1,7 +1,9 @@
-import os
 import json
-import gzip
-from sqlalchemy import create_engine, text
+import os
+
+from sqlalchemy import text
+
+from crdb_dump.utils.db_connection import get_psycopg_connection
 
 
 def load_schema(schema_path, engine, logger):
@@ -25,10 +27,15 @@ def load_schema(schema_path, engine, logger):
 
 
 def load_chunk(table, file_path, engine, logger):
+
     try:
-        with open(file_path, 'r') as f:
-            with engine.begin() as conn:
-                conn.execute(text(f"COPY {table} FROM STDIN WITH CSV HEADER"), stream=f)
+        conn = get_psycopg_connection()
+        with conn.cursor() as cur:
+            with open(file_path, "r") as f:
+                sql = f"COPY {table} FROM STDIN WITH CSV HEADER"
+                cur.copy_expert(sql, f)
+        conn.commit()
+        conn.close()
         logger.info(f"✔️ Loaded chunk: {file_path}")
         return True
     except Exception as e:

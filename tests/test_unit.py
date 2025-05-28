@@ -47,6 +47,6 @@ def test_cli_help():
 
 def test_cli_missing_db():
     runner = CliRunner()
-    result = runner.invoke(main, [])
+    result = runner.invoke(main, ['export'])
     assert result.exit_code != 0
     assert "--db" in result.output

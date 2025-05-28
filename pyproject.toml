@@ -3,9 +3,10 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "crdb-schema-exporter"
-version = "0.2.2"
-description = "A CLI tool to export schema definitions (DDL) and data from CockroachDB into SQL, JSON, YAML, or CSV formats."
+name = "crdb-dump"
+version = "0.1.0"
+description = "A modular CLI tool to dump CockroachDB schemas and data into SQL, JSON, YAML, or chunked CSV files."
+
 authors = [
     { name="Virag Tripathi", email="virag.tripathi@gmail.com" }
 ]
@@ -32,7 +33,7 @@ dependencies = [
 ]
 
 [project.scripts]
-crdb-schema-exporter = "crdb_schema_exporter.exporter:main"
+crdb-dump = "crdb_dump.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
