@@ -138,11 +138,31 @@ def export_data(opts, out_dir, logger):
 def sql_literal(val):
     if val is None:
         return 'NULL'
+
     if isinstance(val, memoryview):
         return f"decode('{val.tobytes().hex()}', 'hex')"
+
     if isinstance(val, (bytes, bytearray)):
         return f"decode('{val.hex()}', 'hex')"
-    return repr(val).replace("'", "''")
+
+    if isinstance(val, list):
+        def serialize_item(v):
+            if v is None:
+                return 'NULL'
+            if isinstance(v, str):
+                escaped = v.replace("'", "''")
+                return f"'{escaped}'"
+            return str(v)
+
+        escaped_items = [serialize_item(item) for item in val]
+        quoted_items = [f'"{v}"' for v in escaped_items]
+        return f"'{{{','.join(quoted_items)}}}'"
+
+    if isinstance(val, str):
+        escaped = val.replace("'", "''")
+        return f"'{escaped}'"
+
+    return str(val)
 
 
 def csv_safe(val):
