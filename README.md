@@ -65,8 +65,12 @@ crdb-dump load --db=mydb --schema=<.sql> --data-dir=...
 ```bash
 export CRDB_URL="cockroachdb://root@localhost:26257/defaultdb?sslmode=disable"
 ```
+You can also use:
+```bash
+export CRDB_URL="postgresql://root@localhost:26257/defaultdb?sslmode=disable"
+```
 
-or use flags:
+Alternatively, you can specify flags:
 
 ```bash
 --db mydb --host localhost --certs-dir ~/certs

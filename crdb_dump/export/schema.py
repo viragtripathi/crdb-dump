@@ -7,21 +7,33 @@ from sqlalchemy import text
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.io import write_file
 
-
 def dump_create_statement(engine, obj_type, full_name, logger):
     try:
+        db = full_name.split('.')[0]
+        short_name = full_name.split('.')[-1]
         with engine.connect() as conn:
-            result = conn.execute(text(f"SHOW CREATE {obj_type} {full_name}"))
-            rows = list(result)
-            if rows and len(rows[0]) > 1:
-                return rows[0][1] + ";\n"
-            else:
-                logger.warning(f"No DDL returned for {obj_type} {full_name}")
+            conn.execute(text(f"USE {db}"))
+            if obj_type == "TYPE":
+                result = conn.execute(text("SHOW CREATE ALL TYPES"))
+                matches = [
+                    row[0] for row in result
+                    if row[0].startswith("CREATE TYPE") and f".{short_name} " in row[0]
+                ]
+                if matches:
+                    return matches[0] + ";\n"
+                logger.warning(f"Type {short_name} not found in SHOW CREATE ALL TYPES output")
                 return None
+            else:
+                result = conn.execute(text(f"SHOW CREATE {obj_type} {short_name}"))
+                rows = list(result)
+                if rows and len(rows[0]) > 1:
+                    return rows[0][1] + ";\n"
+                else:
+                    logger.warning(f"No DDL returned for {obj_type} {full_name}")
+                    return None
     except Exception as e:
         logger.error(f"Failed to get DDL for {obj_type} {full_name}: {e}")
         return None
-
 
 def collect_objects(engine, db, obj_type, logger):
     query_map = {
@@ -38,11 +50,17 @@ def collect_objects(engine, db, obj_type, logger):
             for row in result:
                 name = row[0] if obj_type == 'view' else row[1] if obj_type in ['table', 'sequence', 'type'] else None
                 if name:
+                    if obj_type == 'type':
+                        enum_check = conn.execute(
+                            text(f"SELECT * FROM pg_type WHERE typname = '{name}' AND typtype = 'e'")
+                        ).fetchall()
+                        if not enum_check:
+                            logger.warning(f"Skipping non-enum type: {name}")
+                            continue
                     objs.append(f"{db}.{name}")
     except Exception as e:
         logger.error(f"Error fetching {obj_type}s: {e}")
     return objs
-
 
 def export_schema(opts, out_dir, logger):
 

@@ -6,6 +6,8 @@ import psycopg2
 def get_sqlalchemy_engine(opts=None):
     url = os.getenv("CRDB_URL")
     if url:
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "cockroachdb://", 1)
         return create_engine(url)
 
     if opts is None:
