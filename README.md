@@ -199,10 +199,3 @@ crdb_dump_output/<db_name>/<db_name>_schema.diff
 * Click-based CLI
 * Tested with CRDB v25.2
 * CI runs all tests via GitHub Actions and Docker
-
----
-
-## 👤 Author
-
-Created by [Virag Tripathi](https://github.com/viragtripathi)
-MIT License

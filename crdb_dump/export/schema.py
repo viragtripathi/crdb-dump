@@ -1,11 +1,12 @@
 import json
-from concurrent.futures import ThreadPoolExecutor
-
+import os
 import yaml
+from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
-
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
-from crdb_dump.utils.io import write_file
+from crdb_dump.utils.common import to_json_literal
+from crdb_dump.utils.io import write_file, archive_output, normalize_filename, validate_fq_table_names
+
 
 def dump_create_statement(engine, obj_type, full_name, logger):
     try:
@@ -62,36 +63,100 @@ def collect_objects(engine, db, obj_type, logger):
         logger.error(f"Error fetching {obj_type}s: {e}")
     return objs
 
+def resolve_object_types(engine, object_names, logger):
+    mapping = {}
+    with engine.connect() as conn:
+        for obj in object_names:
+            db, name = obj.split('.')
+            kind = None
+
+            try:
+                # Check TABLE
+                res = conn.execute(text(
+                    f"SELECT table_name FROM information_schema.tables "
+                    f"WHERE table_schema = 'public' AND table_name = :name"
+                ), {"name": name}).fetchone()
+                if res:
+                    kind = "TABLE"
+            except Exception as e:
+                logger.debug(f"Error checking table for {obj}: {e}")
+
+            if not kind:
+                try:
+                    # Check VIEW
+                    res = conn.execute(text(
+                        f"SELECT table_name FROM information_schema.views "
+                        f"WHERE table_schema = 'public' AND table_name = :name"
+                    ), {"name": name}).fetchone()
+                    if res:
+                        kind = "VIEW"
+                except:
+                    pass
+
+            if not kind:
+                try:
+                    # Check TYPE
+                    res = conn.execute(text(
+                        f"SELECT typname FROM pg_type WHERE typname = :name"
+                    ), {"name": name}).fetchone()
+                    if res:
+                        kind = "TYPE"
+                except:
+                    pass
+
+            if not kind:
+                try:
+                    # Check SEQUENCE
+                    res = conn.execute(text(f"SHOW SEQUENCES")).fetchall()
+                    seqs = [row[1] for row in res]  # db.schema.name format
+                    if name in [s.split('.')[-1] for s in seqs]:
+                        kind = "SEQUENCE"
+                except:
+                    pass
+
+            if kind:
+                mapping[obj] = kind
+            else:
+                logger.warning(f"⚠️ Could not determine type of object: {obj}")
+
+    return mapping
+
 def export_schema(opts, out_dir, logger):
-
     engine = get_sqlalchemy_engine(opts)
+    db = opts["db"]
+    parallel = opts.get("parallel", False)
+    per_table = opts.get("per_table", False)
+    out_format = opts.get("out_format", "sql")
 
-    db = opts['db']
-    parallel = opts['parallel']
-    per_table = opts['per_table']
-    out_format = opts['out_format']
+    os.makedirs(out_dir, exist_ok=True)
 
-    tables = collect_objects(engine, db, 'table', logger)
-    views = collect_objects(engine, db, 'view', logger)
-    sequences = collect_objects(engine, db, 'sequence', logger)
-    types = collect_objects(engine, db, 'type', logger)
+    if opts.get("tables"):
+        tables_fq = validate_fq_table_names(opts["tables"].split(','), db)
+        object_map = resolve_object_types(engine, tables_fq, logger)
+        all_objects = [(typ, fqname) for fqname, typ in object_map.items()]
+    else:
+        tables = collect_objects(engine, db, 'table', logger)
+        views = collect_objects(engine, db, 'view', logger)
+        sequences = collect_objects(engine, db, 'sequence', logger)
+        types = collect_objects(engine, db, 'type', logger)
 
-    all_objects = [("TABLE", name) for name in tables] + \
-                  [("VIEW", name) for name in views] + \
-                  [("SEQUENCE", name) for name in sequences] + \
-                  [("TYPE", name) for name in types]
+        all_objects = [("TABLE", name) for name in tables] + \
+                      [("VIEW", name) for name in views] + \
+                      [("SEQUENCE", name) for name in sequences] + \
+                      [("TYPE", name) for name in types]
 
     dump_data = []
 
     def process(obj_type, full_name):
         ddl = dump_create_statement(engine, obj_type, full_name, logger)
         if ddl:
-            if out_format in ["json", "yaml"]:
-                dump_data.append({"name": full_name, "type": obj_type, "ddl": ddl.strip()})
-            elif per_table:
+            entry = {"name": full_name, "type": obj_type, "ddl": ddl.strip()}
+            dump_data.append(entry)
+
+            if per_table and out_format == "sql":
                 filename = f"{out_dir}/{obj_type.lower()}_{full_name.split('.')[-1]}.sql"
                 write_file(filename, f"-- {obj_type}: {full_name}\n{ddl}\n")
-            else:
+            elif not per_table and out_format == "sql":
                 with open(f"{out_dir}/{db}_schema.sql", "a") as f:
                     f.write(f"-- {obj_type}: {full_name}\n{ddl}\n\n")
 
@@ -103,6 +168,6 @@ def export_schema(opts, out_dir, logger):
             process(*obj)
 
     if out_format == "json":
-        write_file(f"{out_dir}/{db}_schema.json", json.dumps(dump_data, indent=2))
+        write_file(f"{out_dir}/{db}_schema.json", json.dumps(to_json_literal(dump_data), indent=2))
     elif out_format == "yaml":
-        write_file(f"{out_dir}/{db}_schema.yaml", yaml.dump(dump_data))
+        write_file(f"{out_dir}/{db}_schema.yaml", yaml.dump(to_json_literal(dump_data), sort_keys=False))

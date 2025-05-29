@@ -4,10 +4,10 @@ import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 from sqlalchemy import text
-
+from crdb_dump.export.schema import collect_objects
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
+from crdb_dump.utils.common import to_sql_literal, to_csv_literal
 
 
 def export_table_data(engine, table, out_dir, export_format, split, limit, compress, order, order_desc, chunk_size, order_strict, logger):
@@ -65,13 +65,13 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                     open_func = gzip.open if compress else open
                     mode = 'wt' if compress else 'w'
                     with open_func(out_path, mode, newline='') as f:
-                        writer = csv.writer(f)
+                        writer = csv.writer(f, lineterminator='\n')
                         writer.writerow(columns)
-                        writer.writerows([[csv_safe(v) for v in row] for row in rows])
+                        writer.writerows([[to_csv_literal(v) for v in row] for row in rows])
                 elif export_format == 'sql':
                     with open(out_path, 'w') as f:
                         for row in rows:
-                            vals = ", ".join(sql_literal(v) for v in row)
+                            vals = ", ".join(to_sql_literal(v) for v in row)
                             f.write(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES ({vals});\n")
 
                 checksum = file_checksum(out_path)
@@ -108,7 +108,6 @@ def export_data(opts, out_dir, logger):
 
     table_list = opts['tables'].split(',') if opts['tables'] else []
     if not table_list:
-        from crdb_dump.export.schema import collect_objects
         table_list = collect_objects(engine, opts['db'], 'table', logger)
 
     data_tasks = [
@@ -133,47 +132,3 @@ def export_data(opts, out_dir, logger):
     for table, count in table_row_counts.items():
         logger.info(f" - {table}: {count} rows")
     logger.info(f"✅ Total rows exported: {total_rows}")
-
-
-def sql_literal(val):
-    if val is None:
-        return 'NULL'
-
-    if isinstance(val, memoryview):
-        return f"decode('{val.tobytes().hex()}', 'hex')"
-
-    if isinstance(val, (bytes, bytearray)):
-        return f"decode('{val.hex()}', 'hex')"
-
-    if isinstance(val, list):
-        def serialize_item(v):
-            if v is None:
-                return 'NULL'
-            if isinstance(v, str):
-                escaped = v.replace("'", "''")
-                return f"'{escaped}'"
-            return str(v)
-
-        escaped_items = [serialize_item(item) for item in val]
-        quoted_items = [f'"{v}"' for v in escaped_items]
-        return f"'{{{','.join(quoted_items)}}}'"
-
-    if isinstance(val, str):
-        escaped = val.replace("'", "''")
-        return f"'{escaped}'"
-
-    return str(val)
-
-
-def csv_safe(val):
-    if isinstance(val, memoryview):
-        return val.tobytes().hex()
-    if isinstance(val, (bytes, bytearray)):
-        return val.hex()
-    if isinstance(val, list):
-        def escape_csv_array_item(item):
-            if item is None:
-                return ''
-            return item.replace('"', '""') if isinstance(item, str) else str(item)
-        return '{' + ','.join(f'"{escape_csv_array_item(v)}"' for v in val) + '}'
-    return val

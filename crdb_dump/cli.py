@@ -1,11 +1,9 @@
 import importlib
 import json
-import logging
 import os
 import platform
-from subprocess import check_output
-
 import click
+from subprocess import check_output
 
 from crdb_dump.export.data import export_data
 from crdb_dump.export.schema import export_schema
@@ -13,8 +11,7 @@ from crdb_dump.loader.loader import load_schema, load_chunks_from_manifest
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.io import archive_output
 from crdb_dump.verify.checksum import verify_checksums
-
-logger = logging.getLogger(__name__)
+from crdb_dump.utils.logging import init_logger
 
 
 @click.group()
@@ -23,23 +20,14 @@ logger = logging.getLogger(__name__)
 @click.version_option()
 def main(ctx, verbose):
     """crdb-dump: Export and Import CockroachDB schemas and data."""
-    log_level = logging.DEBUG if verbose else logging.INFO
-
-    os.makedirs("logs", exist_ok=True)
-    logging.basicConfig(
-        level=log_level,
-        format="[%(asctime)s] %(levelname)s: %(message)s",
-        handlers=[
-            logging.FileHandler("logs/crdb_dump.log", mode='w'),
-            logging.StreamHandler()
-        ]
-    )
-
     ctx.ensure_object(dict)
+    logger = init_logger(verbose)
+    ctx.obj["logger"] = logger
     ctx.obj["verbose"] = verbose
 
 
 @main.command()
+@click.pass_context
 @click.option('--db', required=True, help='Database name')
 @click.option('--tables', default=None, help='Comma-separated list of db.table names')
 @click.option('--per-table', is_flag=True, help='Output individual files per object')
@@ -61,7 +49,10 @@ def main(ctx, verbose):
 @click.option('--verify-strict', is_flag=True, help='Stop if any checksum fails')
 @click.option('--out-dir', default='crdb_dump_output', help='Output directory for all exports')
 @click.option('--print-connection', is_flag=True, help='Print resolved database connection URL and exit')
-def export(**kwargs):
+def export(ctx, **kwargs):
+    logger = ctx.obj["logger"]
+    kwargs["verbose"] = ctx.obj["verbose"]
+
     engine = get_sqlalchemy_engine(kwargs)
 
     if kwargs.get("print_connection"):
@@ -83,6 +74,7 @@ def export(**kwargs):
 
 
 @main.command()
+@click.pass_context
 @click.option('--db', required=True, help='Target database name')
 @click.option('--schema', type=click.Path(exists=True), help='Schema SQL file to load')
 @click.option('--data-dir', type=click.Path(exists=True), help='Directory containing manifest and data files')
@@ -91,8 +83,9 @@ def export(**kwargs):
 @click.option('--include-tables', default=None, help='Comma-separated list of fully-qualified tables to include (e.g., movr.users)')
 @click.option('--exclude-tables', default=None, help='Comma-separated list of fully-qualified tables to exclude')
 @click.option('--print-connection', is_flag=True, help='Print resolved database connection URL and exit')
-def load(db, schema, data_dir, resume_log, dry_run,
+def load(ctx, db, schema, data_dir, resume_log, dry_run,
          include_tables, exclude_tables, print_connection):
+    logger = ctx.obj["logger"]
     opts = {"db": db}
     engine = get_sqlalchemy_engine(opts)
 
@@ -112,7 +105,6 @@ def load(db, schema, data_dir, resume_log, dry_run,
     for fname in os.listdir(data_dir):
         if fname.endswith(".manifest.json"):
             manifest_path = os.path.join(data_dir, fname)
-
             try:
                 with open(manifest_path) as f:
                     table_fullname = json.load(f)["table"]
@@ -134,9 +126,12 @@ def load(db, schema, data_dir, resume_log, dry_run,
 
 
 @main.command()
+@click.pass_context
 @click.option('--json', 'as_json', is_flag=True, help='Output version info as JSON')
-def version(as_json):
+def version(ctx, as_json):
     """Show detailed version info."""
+    logger = ctx.obj["logger"]
+
     try:
         pkg_name = "crdb-dump"
         pkg_version = importlib.metadata.version(pkg_name)
