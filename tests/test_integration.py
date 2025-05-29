@@ -44,7 +44,6 @@ def test_export_users_schema_sql(tmp_path):
     ddl_contents = ddl_files[0].read_text()
     assert "CREATE TABLE" in ddl_contents
 
-
 @pytest.mark.integration
 @pytest.mark.skipif("CRDB_URL" not in os.environ, reason="CRDB_URL must be set")
 def test_export_users_bytes_data_sql(tmp_path):
@@ -91,4 +90,3 @@ def test_export_users_bytes_data_sql(tmp_path):
 
     assert "decode('0102', 'hex')" in contents
     assert "decode('0304', 'hex')" in contents
-

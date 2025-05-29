@@ -170,4 +170,10 @@ def csv_safe(val):
         return val.tobytes().hex()
     if isinstance(val, (bytes, bytearray)):
         return val.hex()
+    if isinstance(val, list):
+        def escape_csv_array_item(item):
+            if item is None:
+                return ''
+            return item.replace('"', '""') if isinstance(item, str) else str(item)
+        return '{' + ','.join(f'"{escape_csv_array_item(v)}"' for v in val) + '}'
     return val
