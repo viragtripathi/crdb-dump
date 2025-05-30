@@ -77,6 +77,22 @@ crdb-dump --verbose load \
   --dry-run \
   --print-connection
 
+echo "❌ Dropping tables to prep for reload..."
+cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
+  DROP TABLE IF EXISTS users;
+  DROP TABLE IF EXISTS logins;
+"
+echo "✅ Tables dropped"
+
+echo "🧪 Full import with --validate-csv and --parallel-load"
+crdb-dump --verbose load \
+  --db="$DB_NAME" \
+  --schema="$SCHEMA_FILE" \
+  --data-dir="$DATA_DIR" \
+  --resume-log="$RESUME_FILE" \
+  --validate-csv \
+  --parallel-load
+
 echo "🔁 Testing data export variations..."
 for ORDER_FLAG in "" "--data-order=id" "--data-order=id --data-order-desc"; do
   for PARALLEL in "" "--data-parallel"; do
@@ -98,19 +114,6 @@ for ORDER_FLAG in "" "--data-order=id" "--data-order=id --data-order-desc"; do
     done
   done
 done
-
-echo "❌ Dropping tables to prep for reload..."
-cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
-  DROP TABLE IF EXISTS users;
-  DROP TABLE IF EXISTS logins;
-"
-
-echo "🚀 Loading schema and data..."
-crdb-dump --verbose load \
-  --db="$DB_NAME" \
-  --schema="$SCHEMA_FILE" \
-  --data-dir="$DATA_DIR" \
-  --resume-log="$RESUME_FILE"
 
 echo "🔍 Verifying loaded users..."
 cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "SELECT COUNT(*) FROM users"

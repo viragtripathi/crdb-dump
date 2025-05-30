@@ -1,6 +1,7 @@
 import json
 import os
 import yaml
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
@@ -130,8 +131,14 @@ def export_schema(opts, out_dir, logger):
 
     os.makedirs(out_dir, exist_ok=True)
 
-    if opts.get("tables"):
-        tables_fq = validate_fq_table_names(opts["tables"].split(','), db)
+    include = opts.get("tables")
+    exclude = opts.get("exclude_tables")
+
+    if include and exclude:
+        raise click.UsageError("You cannot use --tables and --exclude-tables at the same time.")
+
+    if include:
+        tables_fq = validate_fq_table_names(include.split(','), db)
         object_map = resolve_object_types(engine, tables_fq, logger)
         all_objects = [(typ, fqname) for fqname, typ in object_map.items()]
     else:
@@ -145,6 +152,13 @@ def export_schema(opts, out_dir, logger):
                       [("SEQUENCE", name) for name in sequences] + \
                       [("TYPE", name) for name in types]
 
+        if exclude:
+            exclude_set = set(validate_fq_table_names(exclude.split(','), db))
+            all_objects = [obj for obj in all_objects if obj[1] not in exclude_set]
+
+    if opts.get("include_permissions"):
+        dump_permissions(engine, out_dir, logger)
+
     dump_data = []
 
     def process(obj_type, full_name):
@@ -153,12 +167,15 @@ def export_schema(opts, out_dir, logger):
             entry = {"name": full_name, "type": obj_type, "ddl": ddl.strip()}
             dump_data.append(entry)
 
-            if per_table and out_format == "sql":
-                filename = f"{out_dir}/{obj_type.lower()}_{full_name.split('.')[-1]}.sql"
-                write_file(filename, f"-- {obj_type}: {full_name}\n{ddl}\n")
-            elif not per_table and out_format == "sql":
-                with open(f"{out_dir}/{db}_schema.sql", "a") as f:
-                    f.write(f"-- {obj_type}: {full_name}\n{ddl}\n\n")
+        if per_table and out_format == "sql":
+            filename = f"{out_dir}/{obj_type.lower()}_{full_name.split('.')[-1]}.sql"
+            write_file(filename, f"-- {obj_type}: {full_name}\n{ddl}\n")
+            logger.info(f"Wrote: {filename}")
+        elif not per_table and out_format == "sql":
+            filename = f"{out_dir}/{db}_schema.sql"
+            with open(filename, "a") as f:
+                f.write(f"-- {obj_type}: {full_name}\n{ddl}\n\n")
+            logger.info(f"Wrote: {filename}")
 
     if parallel:
         with ThreadPoolExecutor() as executor:
@@ -171,3 +188,73 @@ def export_schema(opts, out_dir, logger):
         write_file(f"{out_dir}/{db}_schema.json", json.dumps(to_json_literal(dump_data), indent=2))
     elif out_format == "yaml":
         write_file(f"{out_dir}/{db}_schema.yaml", yaml.dump(to_json_literal(dump_data), sort_keys=False))
+
+def dump_permissions(engine, out_dir, logger):
+    try:
+        roles = []
+        grants = []
+        memberships = []
+
+        roles_file = f"{out_dir}/roles.sql"
+        grants_file = f"{out_dir}/grants.sql"
+        memberships_file = f"{out_dir}/role_memberships.sql"
+
+        with engine.connect() as conn:
+            # -- ROLES
+            roles_result = conn.execute(text("SHOW ROLES"))
+            for row in roles_result:
+                role_name = row[0]
+                roles.append(f"CREATE ROLE {role_name};")
+
+            # -- OBJECT GRANTS
+            grants_result = conn.execute(text("SHOW GRANTS"))
+            for row in grants_result:
+                grantee = row[0]
+                object_type = row[1]
+                object_name = row[2]
+                privileges = row[3]
+                grants.append(f"GRANT {privileges} ON {object_type} {object_name} TO {grantee};")
+
+            # -- ROLE MEMBERSHIPS
+            memberships_result = conn.execute(text("SHOW GRANTS ON ROLE"))
+            for row in memberships_result:
+                role = row[0]
+                member = row[1]
+                is_admin = row[2]
+                stmt = f"GRANT {role} TO {member}"
+                if is_admin:
+                    stmt += " WITH ADMIN OPTION"
+                stmt += ";"
+                memberships.append(stmt)
+
+        # Write individual files
+        if roles:
+            write_file(roles_file, "\n".join(roles) + "\n")
+            logger.info(f"Wrote: {roles_file}")
+
+        if grants:
+            write_file(grants_file, "\n".join(grants) + "\n")
+            logger.info(f"Wrote: {grants_file}")
+
+        if memberships:
+            write_file(memberships_file, "\n".join(memberships) + "\n")
+            logger.info(f"Wrote: {memberships_file}")
+
+        # Aggregate file
+        all_lines = [
+            f"-- Exported at: {datetime.utcnow().isoformat()} UTC",
+            "-- ROLES --",
+            *roles,
+            "",
+            "-- GRANTS --",
+            *grants,
+            "",
+            "-- ROLE MEMBERSHIPS --",
+            *memberships,
+            ""
+        ]
+        write_file(f"{out_dir}/permissions.sql", "\n".join(all_lines))
+        logger.info("✅ Wrote permissions to permissions.sql (and supporting files)")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to export permissions: {e}")

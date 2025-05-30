@@ -4,13 +4,14 @@ import os
 import re
 import logging
 
+
 logger = logging.getLogger(__name__)
+
 
 def write_file(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
         f.write(content)
-    logger.info(f"Wrote: {path}")
 
 def archive_output(directory):
     archive_name = f"{directory}.tar.gz"

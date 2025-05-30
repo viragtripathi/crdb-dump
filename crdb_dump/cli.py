@@ -30,8 +30,10 @@ def main(ctx, verbose):
 @click.pass_context
 @click.option('--db', required=True, help='Database name')
 @click.option('--tables', default=None, help='Comma-separated list of db.table names')
+@click.option('--exclude-tables', default=None, help='Comma-separated list of db.table names to exclude from schema/data export')
 @click.option('--per-table', is_flag=True, help='Output individual files per object')
 @click.option('--format', 'out_format', type=click.Choice(['sql', 'json', 'yaml']), default='sql', help='Schema output format')
+@click.option('--include-permissions', is_flag=True, help='Export CREATE ROLE, GRANT, and membership statements')
 @click.option('--archive', is_flag=True, help='Compress output directory')
 @click.option('--diff', help='Compare output with existing SQL file')
 @click.option('--parallel', is_flag=True, help='Enable parallel exports')
@@ -72,9 +74,7 @@ def export(ctx, **kwargs):
     if kwargs['archive']:
         archive_output(out_dir)
 
-
 @main.command()
-@click.pass_context
 @click.option('--db', required=True, help='Target database name')
 @click.option('--schema', type=click.Path(exists=True), help='Schema SQL file to load')
 @click.option('--data-dir', type=click.Path(exists=True), help='Directory containing manifest and data files')
@@ -83,9 +83,13 @@ def export(ctx, **kwargs):
 @click.option('--include-tables', default=None, help='Comma-separated list of fully-qualified tables to include (e.g., movr.users)')
 @click.option('--exclude-tables', default=None, help='Comma-separated list of fully-qualified tables to exclude')
 @click.option('--print-connection', is_flag=True, help='Print resolved database connection URL and exit')
+@click.option('--parallel-load', is_flag=True, help='Use parallel loading of chunks')
+@click.option('--validate-csv', is_flag=True, help='Validate row/column match before COPY')
+@click.pass_context
 def load(ctx, db, schema, data_dir, resume_log, dry_run,
-         include_tables, exclude_tables, print_connection):
-    logger = ctx.obj["logger"]
+         include_tables, exclude_tables, print_connection,
+         parallel_load, validate_csv):
+    logger = ctx.obj.get("logger")
     opts = {"db": db}
     engine = get_sqlalchemy_engine(opts)
 
@@ -105,6 +109,7 @@ def load(ctx, db, schema, data_dir, resume_log, dry_run,
     for fname in os.listdir(data_dir):
         if fname.endswith(".manifest.json"):
             manifest_path = os.path.join(data_dir, fname)
+
             try:
                 with open(manifest_path) as f:
                     table_fullname = json.load(f)["table"]
@@ -122,8 +127,15 @@ def load(ctx, db, schema, data_dir, resume_log, dry_run,
             if dry_run:
                 logger.info(f"[Dry Run] Would load: {manifest_path}")
             else:
-                load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_file=resume_log)
-
+                load_chunks_from_manifest(
+                    manifest_path,
+                    data_dir,
+                    engine,
+                    logger,
+                    resume_file=resume_log,
+                    parallel=parallel_load,
+                    validate=validate_csv
+                )
 
 @main.command()
 @click.pass_context
