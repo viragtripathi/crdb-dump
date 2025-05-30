@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import json
 import os
+from crdb_dump.utils.common import retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import text
 from crdb_dump.export.schema import collect_objects
@@ -10,11 +11,11 @@ from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.common import to_sql_literal, to_csv_literal
 
 
-def export_table_data(engine, table, out_dir, export_format, split, limit, compress, order, order_desc, chunk_size, order_strict, logger):
+def export_table_data(engine, table, out_dir, export_format, split, limit, compress, order, order_desc, chunk_size, order_strict, logger, retry_count, retry_delay):
     try:
         db, tbl = table.split('.')
         base_name = tbl.replace('.', '_')
-        with engine.connect() as conn:
+        with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
             cols_res = conn.execute(text(f"SELECT column_name FROM information_schema.columns WHERE table_name='{tbl}'"))
             columns = [row[0] for row in cols_res]
             if order:
@@ -101,6 +102,9 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
 def export_data(opts, out_dir, logger):
     engine = get_sqlalchemy_engine(opts)
 
+    retry_count = opts.get("retry_count", 3)
+    retry_delay = opts.get("retry_delay", 1000) / 1000.0  # Convert ms to seconds
+
     if opts.get("print_connection"):
         print("🔗 Using CockroachDB URL:")
         print(str(engine.url))
@@ -108,7 +112,9 @@ def export_data(opts, out_dir, logger):
 
     table_list = opts['tables'].split(',') if opts['tables'] else []
     if not table_list:
-        table_list = collect_objects(engine, opts['db'], 'table', logger)
+        table_list = collect_objects(engine, opts['db'], 'table', logger, retry_count, retry_delay)
+
+    wrapped_export = lambda *args: export_table_data(*args, retry_count, retry_delay)
 
     data_tasks = [
         (engine, table, out_dir, opts['data_format'], opts['data_split'], opts['data_limit'],
@@ -120,11 +126,11 @@ def export_data(opts, out_dir, logger):
     if opts['data_parallel']:
         results = []
         with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(export_table_data, *args) for args in data_tasks]
+            futures = [executor.submit(wrapped_export, *args) for args in data_tasks]
             for future in as_completed(futures):
                 results.append(future.result())
     else:
-        results = [export_table_data(*args) for args in data_tasks]
+        results = [wrapped_export(*args) for args in data_tasks]
 
     table_row_counts = {tbl.split('.')[-1]: count for tbl, count in zip([t[1] for t in data_tasks], results)}
     total_rows = sum(table_row_counts.values())

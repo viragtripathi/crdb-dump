@@ -6,10 +6,13 @@ from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 
 
 def verify_checksums(opts, out_dir, logger):
+    retry_count = opts.get("retry_count", 3)
+    retry_delay = opts.get("retry_delay", 1000) / 1000.0  # Convert ms to seconds
+
     table_list = opts['tables'].split(',') if opts['tables'] else []
     if not table_list:
         engine = get_sqlalchemy_engine(opts)
-        table_list = collect_objects(engine, opts['db'], 'table', logger)
+        table_list = collect_objects(engine, opts['db'], 'table', logger, retry_count, retry_delay)
 
     failed = 0
     passed = 0

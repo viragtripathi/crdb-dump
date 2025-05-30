@@ -3,7 +3,7 @@ import psycopg2.extras
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from crdb_dump.utils.common import retry
 from sqlalchemy import text
 from crdb_dump.utils.db_connection import get_psycopg_connection
 
@@ -27,7 +27,6 @@ def load_schema(schema_path, engine, logger):
         logger.error(f"❌ Failed to load schema: {e}")
         return False
 
-
 def validate_csv_header(table, filepath, logger):
     conn = get_psycopg_connection()
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -42,7 +41,6 @@ def validate_csv_header(table, filepath, logger):
         logger.warning(f"Header mismatch for {table}:\nDB:   {db_columns}\nFile: {csv_header}")
         return False
     return True
-
 
 def load_chunk(table, file_path, engine, logger, validate=False):
     try:
@@ -64,10 +62,12 @@ def load_chunk(table, file_path, engine, logger, validate=False):
         return False
 
 
-def load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_file=None, parallel=False, validate=False):
+def load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_file=None, parallel=False, validate=False, retry_count=3, retry_delay=1.0):
     table_loaded = 0
     skipped = 0
     failed = 0
+
+    wrapped_load_chunk = retry(retries=retry_count, delay=retry_delay)(load_chunk)
 
     with open(manifest_path) as mf:
         manifest = json.load(mf)
@@ -89,7 +89,7 @@ def load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_fi
         tasks.append((table, chunk_file))
 
     def _load_task(table, path):
-        success = load_chunk(table, path, engine, logger, validate=validate)
+        success = wrapped_load_chunk(table, path, engine, logger, validate=validate)
         return path, success
 
     if parallel:
@@ -104,7 +104,7 @@ def load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_fi
                     failed += 1
     else:
         for table, path in tasks:
-            success = load_chunk(table, path, engine, logger, validate=validate)
+            success = wrapped_load_chunk(table, path, engine, logger, validate=validate)
             if success:
                 table_loaded += 1
                 loaded_chunks.add(os.path.basename(path))

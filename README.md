@@ -22,6 +22,8 @@ A feature-rich CLI for exporting and importing CockroachDB schemas and data. Inc
 - ✅ TLS and insecure auth supported
 - ✅ Schema diff support (`--diff`)
 - ✅ Full logging via `logs/crdb_dump.log`
+- ✅ Automatic retry logic for transient connection errors (e.g., server restarts)
+- ✅ Fault-tolerant, resumable imports using `--resume-log` with chunk-level tracking
 
 ---
 

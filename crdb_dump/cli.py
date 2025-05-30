@@ -51,9 +51,14 @@ def main(ctx, verbose):
 @click.option('--verify-strict', is_flag=True, help='Stop if any checksum fails')
 @click.option('--out-dir', default='crdb_dump_output', help='Output directory for all exports')
 @click.option('--print-connection', is_flag=True, help='Print resolved database connection URL and exit')
+@click.option('--retry-count', type=int, default=3, help='Number of retry attempts')
+@click.option('--retry-delay', type=int, default=1000, help='Initial retry delay in milliseconds')
 def export(ctx, **kwargs):
     logger = ctx.obj["logger"]
     kwargs["verbose"] = ctx.obj["verbose"]
+
+    kwargs["retry_count"] = kwargs.get("retry_count", 3)
+    kwargs["retry_delay"] = kwargs.get("retry_delay", 1000)
 
     engine = get_sqlalchemy_engine(kwargs)
 
@@ -85,10 +90,12 @@ def export(ctx, **kwargs):
 @click.option('--print-connection', is_flag=True, help='Print resolved database connection URL and exit')
 @click.option('--parallel-load', is_flag=True, help='Use parallel loading of chunks')
 @click.option('--validate-csv', is_flag=True, help='Validate row/column match before COPY')
+@click.option('--retry-count', type=int, default=3, help='Number of retry attempts')
+@click.option('--retry-delay', type=int, default=1000, help='Initial retry delay in milliseconds')
 @click.pass_context
 def load(ctx, db, schema, data_dir, resume_log, dry_run,
          include_tables, exclude_tables, print_connection,
-         parallel_load, validate_csv):
+         parallel_load, validate_csv, retry_count, retry_delay):
     logger = ctx.obj.get("logger")
     opts = {"db": db}
     engine = get_sqlalchemy_engine(opts)
@@ -134,7 +141,9 @@ def load(ctx, db, schema, data_dir, resume_log, dry_run,
                     logger,
                     resume_file=resume_log,
                     parallel=parallel_load,
-                    validate=validate_csv
+                    validate=validate_csv,
+                    retry_count=retry_count,
+                    retry_delay=retry_delay
                 )
 
 @main.command()

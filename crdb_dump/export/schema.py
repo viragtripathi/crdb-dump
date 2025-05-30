@@ -1,6 +1,7 @@
 import json
 import os
 import yaml
+from crdb_dump.utils.common import retry
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
@@ -8,12 +9,11 @@ from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.common import to_json_literal
 from crdb_dump.utils.io import write_file, archive_output, normalize_filename, validate_fq_table_names
 
-
-def dump_create_statement(engine, obj_type, full_name, logger):
+def dump_create_statement(engine, obj_type, full_name, logger, retry_count, retry_delay):
     try:
         db = full_name.split('.')[0]
         short_name = full_name.split('.')[-1]
-        with engine.connect() as conn:
+        with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
             conn.execute(text(f"USE {db}"))
             if obj_type == "TYPE":
                 result = conn.execute(text("SHOW CREATE ALL TYPES"))
@@ -37,7 +37,7 @@ def dump_create_statement(engine, obj_type, full_name, logger):
         logger.error(f"Failed to get DDL for {obj_type} {full_name}: {e}")
         return None
 
-def collect_objects(engine, db, obj_type, logger):
+def collect_objects(engine, db, obj_type, logger, retry_count, retry_delay):
     query_map = {
         'table': "SHOW TABLES",
         'view': "SELECT table_name FROM information_schema.views WHERE table_schema NOT IN ('pg_catalog', 'information_schema')",
@@ -46,7 +46,7 @@ def collect_objects(engine, db, obj_type, logger):
     }
     objs = []
     try:
-        with engine.connect() as conn:
+        with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
             conn.execute(text(f"USE {db}"))
             result = conn.execute(text(query_map[obj_type]))
             for row in result:
@@ -64,9 +64,9 @@ def collect_objects(engine, db, obj_type, logger):
         logger.error(f"Error fetching {obj_type}s: {e}")
     return objs
 
-def resolve_object_types(engine, object_names, logger):
+def resolve_object_types(engine, object_names, logger, retry_count, retry_delay):
     mapping = {}
-    with engine.connect() as conn:
+    with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
         for obj in object_names:
             db, name = obj.split('.')
             kind = None
@@ -134,18 +134,27 @@ def export_schema(opts, out_dir, logger):
     include = opts.get("tables")
     exclude = opts.get("exclude_tables")
 
+    retry_count = opts.get("retry_count", 3)
+    retry_delay = opts.get("retry_delay", 1000) / 1000.0
+
+    # Wrap retry around critical functions
+    wrapped_dump_create = lambda *args: dump_create_statement(*args, retry_count, retry_delay)
+    wrapped_collect_objects = lambda *args: collect_objects(*args, retry_count, retry_delay)
+    wrapped_resolve_types = lambda *args: resolve_object_types(*args, retry_count, retry_delay)
+    wrapped_dump_permissions = lambda *args: dump_permissions(*args, retry_count, retry_delay)
+
     if include and exclude:
         raise click.UsageError("You cannot use --tables and --exclude-tables at the same time.")
 
     if include:
         tables_fq = validate_fq_table_names(include.split(','), db)
-        object_map = resolve_object_types(engine, tables_fq, logger)
+        object_map = wrapped_resolve_types(engine, tables_fq, logger)
         all_objects = [(typ, fqname) for fqname, typ in object_map.items()]
     else:
-        tables = collect_objects(engine, db, 'table', logger)
-        views = collect_objects(engine, db, 'view', logger)
-        sequences = collect_objects(engine, db, 'sequence', logger)
-        types = collect_objects(engine, db, 'type', logger)
+        tables = wrapped_collect_objects(engine, db, 'table', logger)
+        views = wrapped_collect_objects(engine, db, 'view', logger)
+        sequences = wrapped_collect_objects(engine, db, 'sequence', logger)
+        types = wrapped_collect_objects(engine, db, 'type', logger)
 
         all_objects = [("TABLE", name) for name in tables] + \
                       [("VIEW", name) for name in views] + \
@@ -157,12 +166,12 @@ def export_schema(opts, out_dir, logger):
             all_objects = [obj for obj in all_objects if obj[1] not in exclude_set]
 
     if opts.get("include_permissions"):
-        dump_permissions(engine, out_dir, logger)
+        wrapped_dump_permissions(engine, out_dir, logger)
 
     dump_data = []
 
     def process(obj_type, full_name):
-        ddl = dump_create_statement(engine, obj_type, full_name, logger)
+        ddl = wrapped_dump_create(engine, obj_type, full_name, logger)
         if ddl:
             entry = {"name": full_name, "type": obj_type, "ddl": ddl.strip()}
             dump_data.append(entry)
@@ -189,7 +198,7 @@ def export_schema(opts, out_dir, logger):
     elif out_format == "yaml":
         write_file(f"{out_dir}/{db}_schema.yaml", yaml.dump(to_json_literal(dump_data), sort_keys=False))
 
-def dump_permissions(engine, out_dir, logger):
+def dump_permissions(engine, out_dir, logger, retry_count, retry_delay):
     try:
         roles = []
         grants = []
@@ -199,7 +208,7 @@ def dump_permissions(engine, out_dir, logger):
         grants_file = f"{out_dir}/grants.sql"
         memberships_file = f"{out_dir}/role_memberships.sql"
 
-        with engine.connect() as conn:
+        with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
             # -- ROLES
             roles_result = conn.execute(text("SHOW ROLES"))
             for row in roles_result:

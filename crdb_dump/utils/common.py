@@ -1,7 +1,32 @@
 import random
 import re
+import time
+import random
+import functools
+import psycopg2
+from sqlalchemy import exc
 from crdb_dump.utils.type_constants import NOT_NULL_MIN, NOT_NULL_MAX, DEFAULT_ARRAY_COUNT
 
+
+RETRYABLE_EXCEPTIONS = (psycopg2.OperationalError, exc.OperationalError)
+
+def retry(retries=3, delay=1.0, backoff=2.0, exceptions=RETRYABLE_EXCEPTIONS):
+    def decorator_retry(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            current_delay = delay
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    if attempt == retries - 1:
+                        raise
+                    sleep = current_delay + random.uniform(0, 0.3)
+                    print(f"[Retry] Attempt {attempt + 1} failed: {e}. Retrying in {sleep:.2f}s...")
+                    time.sleep(sleep)
+                    current_delay *= backoff
+        return wrapper
+    return decorator_retry
 
 def to_sql_literal(val):
     if val is None:
