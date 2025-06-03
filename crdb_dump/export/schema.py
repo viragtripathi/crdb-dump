@@ -6,7 +6,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
-from crdb_dump.utils.common import to_json_literal
+from crdb_dump.utils.common import to_json_literal, get_table_locality
 from crdb_dump.utils.io import write_file, archive_output, normalize_filename, validate_fq_table_names
 
 def dump_create_statement(engine, obj_type, full_name, logger, retry_count, retry_delay):
@@ -23,7 +23,10 @@ def dump_create_statement(engine, obj_type, full_name, logger, retry_count, retr
                 ]
                 if matches:
                     return matches[0] + ";\n"
-                logger.warning(f"Type {short_name} not found in SHOW CREATE ALL TYPES output")
+                if not short_name.startswith("crdb_internal"):
+                    logger.warning(f"Type {short_name} not found in SHOW CREATE ALL TYPES output")
+                else:
+                    logger.info(f"Skipping internal type: {short_name}")
                 return None
             else:
                 result = conn.execute(text(f"SHOW CREATE {obj_type} {short_name}"))
@@ -137,6 +140,9 @@ def export_schema(opts, out_dir, logger):
     retry_count = opts.get("retry_count", 3)
     retry_delay = opts.get("retry_delay", 1000) / 1000.0
 
+    region_filter = opts.get("region")
+    locality_map = get_table_locality(engine, db, logger)
+
     # Wrap retry around critical functions
     wrapped_dump_create = lambda *args: dump_create_statement(*args, retry_count, retry_delay)
     wrapped_collect_objects = lambda *args: collect_objects(*args, retry_count, retry_delay)
@@ -161,6 +167,15 @@ def export_schema(opts, out_dir, logger):
                       [("SEQUENCE", name) for name in sequences] + \
                       [("TYPE", name) for name in types]
 
+        if region_filter:
+            def region_matches(fqname):
+                loc = locality_map.get(fqname, "").upper()
+                return region_filter.upper() in loc
+
+            before = len(all_objects)
+            all_objects = [obj for obj in all_objects if region_matches(obj[1])]
+            logger.info(f"📍 Region filter: {region_filter} — selected {len(all_objects)}/{before} objects")
+
         if exclude:
             exclude_set = set(validate_fq_table_names(exclude.split(','), db))
             all_objects = [obj for obj in all_objects if obj[1] not in exclude_set]
@@ -172,9 +187,11 @@ def export_schema(opts, out_dir, logger):
 
     def process(obj_type, full_name):
         ddl = wrapped_dump_create(engine, obj_type, full_name, logger)
-        if ddl:
-            entry = {"name": full_name, "type": obj_type, "ddl": ddl.strip()}
-            dump_data.append(entry)
+        if not ddl:
+            return  # ✅ Skip entirely if no DDL returned
+
+        entry = {"name": full_name, "type": obj_type, "ddl": ddl.strip()}
+        dump_data.append(entry)
 
         if per_table and out_format == "sql":
             filename = f"{out_dir}/{obj_type.lower()}_{full_name.split('.')[-1]}.sql"

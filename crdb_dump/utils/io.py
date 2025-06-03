@@ -5,8 +5,8 @@ import re
 import logging
 
 
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 def write_file(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)

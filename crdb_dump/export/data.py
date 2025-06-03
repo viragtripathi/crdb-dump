@@ -3,7 +3,8 @@ import gzip
 import hashlib
 import json
 import os
-from crdb_dump.utils.common import retry
+from crdb_dump.utils.common import retry, get_table_locality
+from crdb_dump.utils.s3 import get_s3_client, upload_file_to_s3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import text
 from crdb_dump.export.schema import collect_objects
@@ -11,7 +12,8 @@ from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.common import to_sql_literal, to_csv_literal
 
 
-def export_table_data(engine, table, out_dir, export_format, split, limit, compress, order, order_desc, chunk_size, order_strict, logger, retry_count, retry_delay):
+def export_table_data(engine, table, out_dir, export_format, split, limit, compress, order, order_desc,
+                      chunk_size, order_strict, logger, locality_map, retry_count, retry_delay, opts):
     try:
         db, tbl = table.split('.')
         base_name = tbl.replace('.', '_')
@@ -81,6 +83,18 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                     "rows": len(rows),
                     "sha256": checksum
                 })
+
+                # ✅ S3 Upload
+                if opts.get("use_s3"):
+                    s3 = get_s3_client(
+                        endpoint_url=opts.get("s3_endpoint"),
+                        access_key=opts.get("s3_access_key"),
+                        secret_key=opts.get("s3_secret_key")
+                    )
+                    s3_key = f"{opts['s3_prefix']}{os.path.basename(out_path)}"
+                    upload_file_to_s3(s3, opts["s3_bucket"], s3_key, out_path)
+                    logger.info(f"☁️ Uploaded to S3: s3://{opts['s3_bucket']}/{s3_key}")
+
                 logger.info(f"Exported data for {table} chunk {chunk_index} to {out_path} ({len(rows)} rows)")
                 chunk_index += 1
 
@@ -88,8 +102,15 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                     break
 
             manifest_path = os.path.join(out_dir, f"{base_name}.manifest.json")
+            region = locality_map.get(table, "N/A")
             with open(manifest_path, 'w') as mf:
-                json.dump({"table": table, "chunks": manifest}, mf, indent=2)
+                json.dump({
+                    "table": table,
+                    "region": region,
+                    "chunks": manifest
+                }, mf, indent=2)
+
+            logger.info(f"🌍 Exporting {table} (region: {region})")
             logger.info(f"Wrote manifest for {table} to {manifest_path}")
 
             return total_rows
@@ -103,7 +124,10 @@ def export_data(opts, out_dir, logger):
     engine = get_sqlalchemy_engine(opts)
 
     retry_count = opts.get("retry_count", 3)
-    retry_delay = opts.get("retry_delay", 1000) / 1000.0  # Convert ms to seconds
+    retry_delay = opts.get("retry_delay", 1000) / 1000.0
+
+    region_filter = opts.get("region")
+    locality_map = get_table_locality(engine, opts["db"], logger)
 
     if opts.get("print_connection"):
         print("🔗 Using CockroachDB URL:")
@@ -114,7 +138,16 @@ def export_data(opts, out_dir, logger):
     if not table_list:
         table_list = collect_objects(engine, opts['db'], 'table', logger, retry_count, retry_delay)
 
-    wrapped_export = lambda *args: export_table_data(*args, retry_count, retry_delay)
+    if region_filter:
+        def region_matches(fqname):
+            loc = locality_map.get(fqname, "").upper()
+            return region_filter.upper() in loc
+
+        before = len(table_list)
+        table_list = [t for t in table_list if region_matches(t)]
+        logger.info(f"📍 Region filter: {region_filter} — selected {len(table_list)}/{before} tables")
+
+    wrapped_export = lambda *args: export_table_data(*args, locality_map, retry_count, retry_delay, opts)
 
     data_tasks = [
         (engine, table, out_dir, opts['data_format'], opts['data_split'], opts['data_limit'],

@@ -24,3 +24,8 @@ versions.properties
 /.idea/
 *.egg-info
 /logs/
+build/
+dist/
+*.egg-info/
+__pycache__/
+venv/

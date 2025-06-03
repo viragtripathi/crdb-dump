@@ -12,6 +12,7 @@ from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.io import archive_output
 from crdb_dump.verify.checksum import verify_checksums
 from crdb_dump.utils.logging import init_logger
+from crdb_dump.utils.s3 import get_s3_client, download_file_from_s3
 
 
 @click.group()
@@ -32,6 +33,7 @@ def main(ctx, verbose):
 @click.option('--tables', default=None, help='Comma-separated list of db.table names')
 @click.option('--exclude-tables', default=None, help='Comma-separated list of db.table names to exclude from schema/data export')
 @click.option('--per-table', is_flag=True, help='Output individual files per object')
+@click.option('--region', default=None, help='Only export tables matching this region')
 @click.option('--format', 'out_format', type=click.Choice(['sql', 'json', 'yaml']), default='sql', help='Schema output format')
 @click.option('--include-permissions', is_flag=True, help='Export CREATE ROLE, GRANT, and membership statements')
 @click.option('--archive', is_flag=True, help='Compress output directory')
@@ -53,6 +55,12 @@ def main(ctx, verbose):
 @click.option('--print-connection', is_flag=True, help='Print resolved database connection URL and exit')
 @click.option('--retry-count', type=int, default=3, help='Number of retry attempts')
 @click.option('--retry-delay', type=int, default=1000, help='Initial retry delay in milliseconds')
+@click.option('--use-s3', is_flag=True, help='Enable S3 upload/download for data chunks')
+@click.option('--s3-bucket', help='S3 bucket to upload to or read from')
+@click.option('--s3-prefix', default="", help='S3 key prefix path')
+@click.option('--s3-endpoint', default=None, help='Custom S3 endpoint (e.g. for Cohesity, MinIO)')
+@click.option('--s3-access-key', envvar='AWS_ACCESS_KEY_ID', help='S3 access key')
+@click.option('--s3-secret-key', envvar='AWS_SECRET_ACCESS_KEY', help='S3 secret key')
 def export(ctx, **kwargs):
     logger = ctx.obj["logger"]
     kwargs["verbose"] = ctx.obj["verbose"]
@@ -83,7 +91,10 @@ def export(ctx, **kwargs):
 @click.option('--db', required=True, help='Target database name')
 @click.option('--schema', type=click.Path(exists=True), help='Schema SQL file to load')
 @click.option('--data-dir', type=click.Path(exists=True), help='Directory containing manifest and data files')
+@click.option('--region', default=None, help='Only import tables from this region (matches manifest region)')
 @click.option('--resume-log', default='resume.json', help='Path to JSON file tracking loaded chunks')
+@click.option('--resume-log-dir', type=click.Path(), help='Directory to store per-table resume logs (overrides --resume-log)')
+@click.option('--resume-strict', is_flag=True, help='Abort on first failed chunk when using resume')
 @click.option('--dry-run', is_flag=True, help='Show what would be imported without executing')
 @click.option('--include-tables', default=None, help='Comma-separated list of fully-qualified tables to include (e.g., movr.users)')
 @click.option('--exclude-tables', default=None, help='Comma-separated list of fully-qualified tables to exclude')
@@ -92,12 +103,27 @@ def export(ctx, **kwargs):
 @click.option('--validate-csv', is_flag=True, help='Validate row/column match before COPY')
 @click.option('--retry-count', type=int, default=3, help='Number of retry attempts')
 @click.option('--retry-delay', type=int, default=1000, help='Initial retry delay in milliseconds')
+@click.option('--use-s3', is_flag=True, help='Enable S3 upload/download for data chunks')
+@click.option('--s3-bucket', help='S3 bucket to upload to or read from')
+@click.option('--s3-prefix', default="", help='S3 key prefix path')
+@click.option('--s3-endpoint', default=None, help='Custom S3 endpoint (e.g. for Cohesity, MinIO)')
+@click.option('--s3-access-key', envvar='AWS_ACCESS_KEY_ID', help='S3 access key')
+@click.option('--s3-secret-key', envvar='AWS_SECRET_ACCESS_KEY', help='S3 secret key')
 @click.pass_context
-def load(ctx, db, schema, data_dir, resume_log, dry_run,
+def load(ctx, db, schema, data_dir, resume_log, resume_log_dir, dry_run,
          include_tables, exclude_tables, print_connection,
-         parallel_load, validate_csv, retry_count, retry_delay):
+         parallel_load, validate_csv, retry_count, retry_delay, resume_strict, region,
+         use_s3, s3_bucket, s3_prefix, s3_endpoint, s3_access_key, s3_secret_key):
     logger = ctx.obj.get("logger")
-    opts = {"db": db}
+    opts = {
+        "db": db,
+        "use_s3": use_s3,
+        "s3_bucket": s3_bucket,
+        "s3_prefix": s3_prefix,
+        "s3_endpoint": s3_endpoint,
+        "s3_access_key": s3_access_key,
+        "s3_secret_key": s3_secret_key
+    }
     engine = get_sqlalchemy_engine(opts)
 
     if print_connection:
@@ -112,6 +138,13 @@ def load(ctx, db, schema, data_dir, resume_log, dry_run,
 
     include = set(include_tables.split(',')) if include_tables else None
     exclude = set(exclude_tables.split(',')) if exclude_tables else None
+
+    if opts.get("use_s3"):
+        s3 = get_s3_client(
+            endpoint_url=opts.get("s3_endpoint"),
+            access_key=opts.get("s3_access_key"),
+            secret_key=opts.get("s3_secret_key")
+        )
 
     for fname in os.listdir(data_dir):
         if fname.endswith(".manifest.json"):
@@ -140,10 +173,14 @@ def load(ctx, db, schema, data_dir, resume_log, dry_run,
                     engine,
                     logger,
                     resume_file=resume_log,
+                    resume_log_dir=resume_log_dir,
                     parallel=parallel_load,
                     validate=validate_csv,
                     retry_count=retry_count,
-                    retry_delay=retry_delay
+                    retry_delay=retry_delay,
+                    resume_strict=resume_strict,
+                    region_filter=region,
+                    opts=opts
                 )
 
 @main.command()

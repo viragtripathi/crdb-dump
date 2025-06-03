@@ -1,11 +1,12 @@
 import csv
-import psycopg2.extras
 import json
 import os
+import psycopg2.extras
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from crdb_dump.utils.common import retry
 from sqlalchemy import text
+from crdb_dump.utils.common import retry
 from crdb_dump.utils.db_connection import get_psycopg_connection
+from crdb_dump.utils.s3 import get_s3_client, download_file_from_s3
 
 
 def load_schema(schema_path, engine, logger):
@@ -27,6 +28,7 @@ def load_schema(schema_path, engine, logger):
         logger.error(f"❌ Failed to load schema: {e}")
         return False
 
+
 def validate_csv_header(table, filepath, logger):
     conn = get_psycopg_connection()
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -42,15 +44,29 @@ def validate_csv_header(table, filepath, logger):
         return False
     return True
 
-def load_chunk(table, file_path, engine, logger, validate=False):
+
+def load_chunk(table, file_path, engine, logger, validate=False, opts=None):
     try:
-        if validate and not validate_csv_header(table, file_path, logger):
+        local_path = file_path
+
+        if opts and opts.get("use_s3"):
+            s3 = get_s3_client(
+                endpoint_url=opts.get("s3_endpoint"),
+                access_key=opts.get("s3_access_key"),
+                secret_key=opts.get("s3_secret_key")
+            )
+            s3_key = f"{opts['s3_prefix']}{os.path.basename(file_path)}"
+            local_path = f"/tmp/{os.path.basename(file_path)}"
+            download_file_from_s3(s3, opts["s3_bucket"], s3_key, local_path)
+            logger.info(f"☁️ Downloaded from S3: s3://{opts['s3_bucket']}/{s3_key}")
+
+        if validate and not validate_csv_header(table, local_path, logger):
             logger.error(f"Skipping load for {file_path} due to header mismatch.")
             return False
 
         conn = get_psycopg_connection()
         with conn.cursor() as cur:
-            with open(file_path, "r") as f:
+            with open(local_path, "r") as f:
                 sql = f"COPY {table} FROM STDIN WITH CSV HEADER"
                 cur.copy_expert(sql, f)
         conn.commit()
@@ -62,7 +78,12 @@ def load_chunk(table, file_path, engine, logger, validate=False):
         return False
 
 
-def load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_file=None, parallel=False, validate=False, retry_count=3, retry_delay=1.0):
+def load_chunks_from_manifest(manifest_path, data_dir, engine, logger,
+                              resume_file=None, resume_log_dir=None,
+                              parallel=False, validate=False,
+                              retry_count=3, retry_delay=1.0,
+                              resume_strict=False, region_filter=None, opts=None):
+
     table_loaded = 0
     skipped = 0
     failed = 0
@@ -71,8 +92,18 @@ def load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_fi
 
     with open(manifest_path) as mf:
         manifest = json.load(mf)
+
     table = manifest['table']
+    manifest_region = manifest.get('region', 'N/A')
     log_key = table.replace('.', '_')
+
+    if region_filter and region_filter.lower() not in manifest_region.lower():
+        logger.info(f"⏩ Skipping {table} due to region filter: {region_filter} (manifest says: {manifest_region})")
+        return 0, 0, 0
+
+    if resume_log_dir:
+        os.makedirs(resume_log_dir, exist_ok=True)
+        resume_file = os.path.join(resume_log_dir, f"{log_key}.json")
 
     loaded_chunks = set()
     if resume_file and os.path.exists(resume_file):
@@ -88,41 +119,48 @@ def load_chunks_from_manifest(manifest_path, data_dir, engine, logger, resume_fi
             continue
         tasks.append((table, chunk_file))
 
+    def _update_log(chunk_name):
+        if resume_file:
+            current = {}
+            if os.path.exists(resume_file):
+                with open(resume_file) as f:
+                    current = json.load(f)
+            loaded = set(current.get(log_key, []))
+            loaded.add(chunk_name)
+            current[log_key] = sorted(list(loaded))
+            with open(resume_file, 'w') as f:
+                json.dump(current, f, indent=2)
+
     def _load_task(table, path):
-        success = wrapped_load_chunk(table, path, engine, logger, validate=validate)
+        success = wrapped_load_chunk(table, path, engine, logger, validate=validate, opts=opts)
         return path, success
 
     if parallel:
         with ThreadPoolExecutor() as executor:
-            future_to_path = {executor.submit(_load_task, t, p): p for t, p in tasks}
-            for future in as_completed(future_to_path):
+            futures = {executor.submit(_load_task, t, p): p for t, p in tasks}
+            for future in as_completed(futures):
                 path, success = future.result()
                 if success:
                     table_loaded += 1
                     loaded_chunks.add(os.path.basename(path))
+                    _update_log(os.path.basename(path))
                 else:
                     failed += 1
+                    if resume_strict:
+                        logger.error(f"❌ Aborting due to failed chunk: {path}")
+                        break
     else:
         for table, path in tasks:
-            success = wrapped_load_chunk(table, path, engine, logger, validate=validate)
+            success = _load_task(table, path)[1]
             if success:
                 table_loaded += 1
                 loaded_chunks.add(os.path.basename(path))
+                _update_log(os.path.basename(path))
             else:
                 failed += 1
-
-    if resume_file:
-        _update_resume_log(resume_file, log_key, loaded_chunks)
+                if resume_strict:
+                    logger.error(f"❌ Aborting due to failed chunk: {path}")
+                    break
 
     logger.info(f"✅ Loaded {table_loaded} chunks | ⏩ Skipped: {skipped} | ❌ Failed: {failed}")
     return table_loaded, skipped, failed
-
-
-def _update_resume_log(resume_file, key, chunk_set):
-    log_data = {}
-    if os.path.exists(resume_file):
-        with open(resume_file) as f:
-            log_data = json.load(f)
-    log_data[key] = list(chunk_set)
-    with open(resume_file, 'w') as f:
-        json.dump(log_data, f, indent=2)

@@ -5,25 +5,29 @@
 
 # crdb-dump
 
-A feature-rich CLI for exporting and importing CockroachDB schemas and data. Includes support for parallel chunked exports, manifest checksums, BYTES/UUID/ARRAY types, permission introspection, and secure resumable imports.
+A feature-rich CLI for exporting and importing CockroachDB schemas and data. Includes support for parallel chunked exports, manifest checksums, BYTES/UUID/ARRAY types, permission introspection, secure resumable imports, S3-compatible storage (MinIO, Cohesity), region-aware filtering, and automatic retry logic.
 
 ---
 
 ## 🚀 Features
 
-- ✅ Schema export: tables, views, sequences, enums
-- ✅ Data export: CSV or SQL with chunking, gzip, and ordering
-- ✅ Types: handles BYTES, UUIDs, STRING[], TIMESTAMP, enums
-- ✅ Schema output formats: `sql`, `json`, `yaml`
-- ✅ Resumable `COPY`-based imports with chunk-level tracking
-- ✅ Permission exports: roles, grants, role memberships
-- ✅ Parallel loading (`--parallel-load`) and manifest verification
-- ✅ Dry-run for schema or chunk loading
-- ✅ TLS and insecure auth supported
-- ✅ Schema diff support (`--diff`)
-- ✅ Full logging via `logs/crdb_dump.log`
-- ✅ Automatic retry logic for transient connection errors (e.g., server restarts)
-- ✅ Fault-tolerant, resumable imports using `--resume-log` with chunk-level tracking
+* ✅ Schema export: tables, views, sequences, enums
+* ✅ Data export: CSV or SQL with chunking, gzip, and ordering
+* ✅ Types: handles BYTES, UUIDs, STRING\[], TIMESTAMP, enums
+* ✅ Schema output formats: `sql`, `json`, `yaml`
+* ✅ Resumable `COPY`-based imports with chunk-level tracking
+* ✅ Permission exports: roles, grants, role memberships
+* ✅ Parallel loading (`--parallel-load`) and manifest verification
+* ✅ Dry-run for schema or chunk loading
+* ✅ TLS and insecure auth supported
+* ✅ Schema diff support (`--diff`)
+* ✅ Full logging via `logs/crdb_dump.log`
+* ✅ Automatic retry logic with exponential backoff for transient failures
+* ✅ Fault-tolerant, resumable imports with `--resume-log` or `--resume-log-dir`
+* ✅ Region-aware export/import via `--region`
+* ✅ S3-compatible support (`--use-s3`) with MinIO, Cohesity, or AWS
+* ✅ CSV header validation (`--validate-csv`)
+* ✅ Python-based S3 bucket creation (via `boto3`) for MinIO
 
 ---
 
@@ -31,7 +35,7 @@ A feature-rich CLI for exporting and importing CockroachDB schemas and data. Inc
 
 ```bash
 pip install crdb-dump
-````
+```
 
 ---
 
@@ -43,11 +47,14 @@ pip install crdb-dump
 
 This script will:
 
+* Start a multi-region demo CockroachDB cluster
 * Create test schema + data
-* Export schema and data (CSV)
-* Verify checksums
-* Dry-run re-import
-* Perform real import with `--validate-csv` and `--parallel-load`
+* Export schema and chunked data (CSV)
+* Verify chunk checksums
+* Dry-run and real import with retry/resume
+* Upload chunks to MinIO (S3-compatible)
+* Download and verify import from S3
+* Use Python (`boto3`) to create S3 buckets
 
 ---
 
@@ -58,6 +65,8 @@ crdb-dump --help
 crdb-dump export --help
 crdb-dump load --help
 ```
+
+Example usage:
 
 ```bash
 crdb-dump export --db=mydb --data --per-table
@@ -74,7 +83,7 @@ export CRDB_URL="cockroachdb://root@localhost:26257/defaultdb?sslmode=disable"
 export CRDB_URL="postgresql://root@localhost:26257/defaultdb?sslmode=disable"
 ```
 
-Alternatively, specify connection parts via flags:
+Alternatively:
 
 ```bash
 --db mydb --host localhost --certs-dir ~/certs
@@ -111,21 +120,28 @@ crdb-dump export \
 | `--tables`              | Comma-separated FQ names to include           |
 | `--exclude-tables`      | Skip specific FQ table names                  |
 | `--include-permissions` | Export roles, grants, and memberships         |
+| `--region`              | Only export tables matching this region       |
 
 ### Data Export
 
-| Option              | Description                    |
-| ------------------- | ------------------------------ |
-| `--data`            | Enable data export             |
-| `--data-format`     | Format: `csv` or `sql`         |
-| `--chunk-size`      | Number of rows per chunk       |
-| `--data-split`      | Output one file per table      |
-| `--data-compress`   | Output `.csv.gz`               |
-| `--data-order`      | Order rows by column(s)        |
-| `--data-order-desc` | Use descending order           |
-| `--data-parallel`   | Parallel export across tables  |
-| `--verify`          | Verify chunk checksums         |
-| `--archive`         | Compress output into `.tar.gz` |
+| Option              | Description                            |
+| ------------------- | -------------------------------------- |
+| `--data`            | Enable data export                     |
+| `--data-format`     | Format: `csv` or `sql`                 |
+| `--chunk-size`      | Number of rows per chunk               |
+| `--data-split`      | Output one file per table              |
+| `--data-compress`   | Output `.csv.gz`                       |
+| `--data-order`      | Order rows by column(s)                |
+| `--data-order-desc` | Use descending order                   |
+| `--data-parallel`   | Parallel export across tables          |
+| `--verify`          | Verify chunk checksums                 |
+| `--region`          | Filter tables by region in manifests   |
+| `--use-s3`          | Upload exported chunks to S3           |
+| `--s3-bucket`       | S3 bucket name                         |
+| `--s3-prefix`       | Key prefix under which to store chunks |
+| `--s3-endpoint`     | S3-compatible endpoint URL             |
+| `--s3-access-key`   | S3 access key (can use env)            |
+| `--s3-secret-key`   | S3 secret key (can use env)            |
 
 ---
 
@@ -142,35 +158,67 @@ crdb-dump load \
   --print-connection
 ```
 
-| Option               | Description                                 |
-| -------------------- | ------------------------------------------- |
-| `--schema`           | `.sql` file to apply                        |
-| `--data-dir`         | Folder containing chunked CSV and manifests |
-| `--resume-log`       | JSON file to resume partial loads           |
-| `--validate-csv`     | Fail early if column mismatch is detected   |
-| `--parallel-load`    | Load chunks using multiple threads          |
-| `--dry-run`          | Print what would be loaded, but skip action |
-| `--include-tables`   | Restrict to specific FQ table names         |
-| `--exclude-tables`   | Skip specific FQ table names                |
-| `--print-connection` | Echo resolved DB connection                 |
+| Option             | Description                                      |
+| ------------------ | ------------------------------------------------ |
+| `--schema`         | `.sql` file to apply                             |
+| `--data-dir`       | Folder containing chunked CSV + manifests        |
+| `--resume-log`     | Track loaded chunks in a single JSON file        |
+| `--resume-log-dir` | Per-table resume logs (e.g. `resume/users.json`) |
+| `--validate-csv`   | Ensure chunk headers match DB schema             |
+| `--parallel-load`  | Load chunks in parallel                          |
+| `--region`         | Only import chunks from matching region          |
+| `--dry-run`        | Print actions but don't execute                  |
+| `--use-s3`         | Download chunks from S3                          |
+| `--s3-bucket`      | S3 bucket name                                   |
+| `--s3-prefix`      | Path prefix inside the bucket                    |
+| `--s3-endpoint`    | S3-compatible endpoint (MinIO, Cohesity)         |
+| `--s3-access-key`  | S3 access key                                    |
+| `--s3-secret-key`  | S3 secret key                                    |
 
 ---
 
-## 📂 Output Structure
+## 🔄 Fault Tolerance & Resume Support
+
+* ✅ Retries failed operations with exponential backoff
+* ✅ Resumable imports:
+
+  * `--resume-log` (single file)
+  * `--resume-log-dir` (per-table)
+  * `--resume-strict` (abort on failure)
+
+Writes resume state after each successful chunk. Restarts are safe and idempotent.
+
+---
+
+## ☁️ S3 / MinIO / Cohesity Example
 
 ```bash
-crdb_dump_output/mydb/
-├── mydb_schema.sql
-├── mydb_schema.json
-├── mydb_schema.yaml
-├── mydb_schema.diff
-├── table_users.sql
-├── users_chunk_001.csv
-├── users.manifest.json
-├── roles.sql
-├── grants.sql
-├── role_memberships.sql
-├── permissions.sql
+crdb-dump export \
+  --db=mydb \
+  --per-table \
+  --data \
+  --chunk-size=1000 \
+  --data-format=csv \
+  --use-s3 \
+  --s3-bucket=crdb-test-bucket \
+  --s3-endpoint=http://localhost:9000 \
+  --s3-access-key=minioadmin \
+  --s3-secret-key=minioadmin \
+  --s3-prefix=test1/ \
+  --out-dir=crdb_dump_output
+
+crdb-dump load \
+  --db=mydb \
+  --data-dir=crdb_dump_output/mydb \
+  --resume-log-dir=resume/ \
+  --parallel-load \
+  --validate-csv \
+  --use-s3 \
+  --s3-bucket=crdb-test-bucket \
+  --s3-endpoint=http://localhost:9000 \
+  --s3-access-key=minioadmin \
+  --s3-secret-key=minioadmin \
+  --s3-prefix=test1/
 ```
 
 ---
@@ -181,7 +229,7 @@ crdb_dump_output/mydb/
 crdb-dump export --db=mydb --diff=old_schema.sql
 ```
 
-Result written to:
+Output:
 
 ```
 crdb_dump_output/mydb/mydb_schema.diff
@@ -196,17 +244,6 @@ pytest -m unit
 pytest -m integration
 ./test-local.sh
 ```
-
----
-
-## 🧑‍💻 Developer Notes
-
-* Based on `click` + `sqlalchemy` + `psycopg2`
-* PEP 621 pyproject-based project layout
-* Supports TLS via `--certs-dir` or insecure fallback
-* Uses CockroachDB `SHOW CREATE`, `COPY`, and `GRANTS`
-* Tested with CockroachDB v25.2
-* CI runs via GitHub Actions + Docker
 
 ---
 
