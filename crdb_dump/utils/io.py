@@ -1,9 +1,8 @@
 import os
 import tarfile
-import os
-import re
 import logging
 
+from crdb_dump.utils.identifiers import parse_object_name
 
 
 logger = logging.getLogger(__name__)
@@ -20,15 +19,20 @@ def archive_output(directory):
     logger.info(f"Archived output to {archive_name}")
 
 def validate_fq_table_names(tables, db):
+    """Normalize table names to three-part ``db.schema.table`` strings.
+
+    Accepts ``table``, ``schema.table``, or ``db.schema.table`` input. A bare
+    table defaults to the ``public`` schema; a two-part name is ``schema.table``.
+    Raises if an explicit database prefix does not match ``db``.
+    """
+    out = []
     for t in tables:
-        if '.' not in t:
-            raise ValueError(f"❌ Invalid table name '{t}': must be fully-qualified like '{db}.users'")
-        parts = t.split('.')
-        if len(parts) != 2 or parts[0] != db:
-            raise ValueError(f"❌ Invalid table name '{t}': expected database prefix '{db}.'")
-    return tables
+        obj = parse_object_name(t, default_db=db)
+        if obj.database != db:
+            raise ValueError(
+                f"❌ Invalid table name '{t}': database '{obj.database}' does not match --db '{db}'")
+        out.append(obj.fq_plain())
+    return out
 
 def normalize_filename(obj_type, full_name):
-    _, name = full_name.split('.', 1)
-    safe_name = re.sub(r'[^\w]+', '_', name).lower()
-    return f"{obj_type.lower()}_{safe_name}.sql"
+    return f"{obj_type.lower()}_{full_name}.sql"
