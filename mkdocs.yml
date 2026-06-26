@@ -66,3 +66,13 @@ nav:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
+  - Guides:
+      - Export Schema: guides/export-schema.md
+      - Export Data: guides/export-data.md
+      - Import & Restore: guides/import-restore.md
+      - Multi-Schema Objects: guides/multi-schema.md
+      - Type Handling: guides/type-handling.md
+      - Permissions: guides/permissions.md
+      - Region-Aware: guides/region-aware.md
+      - S3-Compatible Storage: guides/s3-storage.md
+      - Migration & Limitations: guides/migration-limitations.md
