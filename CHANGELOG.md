@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+_No changes yet._
+
+## 0.6.0 — 2026-06-26
+
 ### Added
 - `--as-of-system-time=follower`: pin `follower_read_timestamp()` so exports are
   served by the nearest replica (follower reads), keeping the consistent-snapshot
