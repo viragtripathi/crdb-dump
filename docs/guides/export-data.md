@@ -62,8 +62,9 @@ The pinned timestamp is recorded in each manifest as `as_of_system_time`.
 
 !!! warning
     The timestamp must be within the table's garbage-collection window
-    (`gc.ttlseconds`). A very long export against an old timestamp can fail once
-    the snapshot ages out of GC.
+    ([`gc.ttlseconds`](https://www.cockroachlabs.com/docs/stable/configure-replication-zones#gc-ttlseconds)).
+    A very long export against an old timestamp can fail once the snapshot ages out
+    of GC.
 
 ### Follower reads
 

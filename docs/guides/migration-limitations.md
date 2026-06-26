@@ -42,7 +42,8 @@ consistent snapshot across tables.
     ```
 
     The timestamp must stay within the garbage-collection window
-    (`gc.ttlseconds`), so keep exports shorter than that window or raise the TTL.
+    ([`gc.ttlseconds`](https://www.cockroachlabs.com/docs/stable/configure-replication-zones#gc-ttlseconds)),
+    so keep exports shorter than that window or raise the TTL.
 
 ## Further reading
 
