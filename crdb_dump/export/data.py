@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import text
 from crdb_dump.export.schema import collect_objects
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
-from crdb_dump.utils.common import to_sql_literal, to_csv_literal
+from crdb_dump.utils.common import to_sql_literal, to_csv_literal, aost_clause
 from crdb_dump.utils.identifiers import parse_object_name, quote_ident
 from crdb_dump.utils.io import validate_fq_table_names
 
@@ -19,10 +19,17 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
     try:
         obj = parse_object_name(table, default_db=table.split('.')[0])
         base_name = obj.file_base()
+        clause = aost_clause(opts.get("aost_resolved"))
         with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
+            if clause:
+                # Each AOST read runs in its own transaction at the SAME pinned
+                # timestamp. CockroachDB allows only one AOST per transaction, so
+                # AUTOCOMMIT avoids "inconsistent AS OF SYSTEM TIME" across the
+                # column and chunk queries while still giving a consistent snapshot.
+                conn = conn.execution_options(isolation_level="AUTOCOMMIT")
             cols_res = conn.execute(text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = :t AND table_schema = :s ORDER BY ordinal_position"
+                "SELECT column_name FROM information_schema.columns" + clause +
+                " WHERE table_name = :t AND table_schema = :s ORDER BY ordinal_position"
             ), {"t": obj.table, "s": obj.schema})
             columns = [row[0] for row in cols_res]
             if order:
@@ -55,7 +62,7 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                 return h.hexdigest()
 
             while True:
-                query = f"SELECT * FROM {obj.fq_quoted()} {order_clause} OFFSET {offset} LIMIT {batch_size}"
+                query = f"SELECT * FROM {obj.fq_quoted()}{clause} {order_clause} OFFSET {offset} LIMIT {batch_size}"
                 if limit and offset >= limit:
                     break
                 rows = conn.execute(text(query)).fetchall()
@@ -114,6 +121,7 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
             with open(manifest_path, 'w') as mf:
                 json.dump({
                     "table": obj.fq_plain(),
+                    "as_of_system_time": opts.get("aost_resolved"),
                     "region": region,
                     "chunks": manifest
                 }, mf, indent=2)
@@ -136,6 +144,15 @@ def export_data(opts, out_dir, logger):
 
     region_filter = opts.get("region")
     locality_map = get_table_locality(engine, opts["db"], logger)
+
+    # Pin the AS OF SYSTEM TIME value ONCE so every table and chunk reads the same
+    # consistent snapshot. "auto" captures a single cluster_logical_timestamp().
+    aost = opts.get("aost")
+    if aost == "auto":
+        with engine.connect() as conn:
+            aost = str(conn.execute(text("SELECT cluster_logical_timestamp()")).scalar())
+        logger.info(f"🕒 Pinned AS OF SYSTEM TIME {aost}")
+    opts["aost_resolved"] = aost
 
     if opts.get("print_connection"):
         print("🔗 Using CockroachDB URL:")
