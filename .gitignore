@@ -40,3 +40,6 @@ resume/
 heap_profiler/
 cockroach-data/
 site/
+
+# mkdocs-material build cache (social cards, etc.)
+.cache/
