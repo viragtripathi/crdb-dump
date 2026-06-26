@@ -850,6 +850,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#consistent-snapshots-as-of-system-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consistent snapshots (--as-of-system-time)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#verifying" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1822,6 +1833,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#consistent-snapshots-as-of-system-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consistent snapshots (--as-of-system-time)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#verifying" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1879,9 +1901,26 @@ SHA-256 checksum.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--data<span class="w"> </span>--data-parallel<span class="w">      </span><span class="c1"># export tables concurrently</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--data<span class="w"> </span>--data-limit<span class="o">=</span><span class="m">100000</span><span class="w">  </span><span class="c1"># cap rows per table</span>
 </code></pre></div>
+<h2 id="consistent-snapshots-as-of-system-time">Consistent snapshots (<code>--as-of-system-time</code>)<a class="headerlink" href="#consistent-snapshots-as-of-system-time" title="Permanent link">&para;</a></h2>
+<p>By default each table is read independently, so a dump of a live database is not
+consistent across tables. Use <code>--as-of-system-time</code> to read every table (and every
+chunk) at one pinned cluster timestamp:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># pin one cluster_logical_timestamp() for the whole export</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--data<span class="w"> </span>--as-of-system-time
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># or pass an explicit interval / timestamp / decimal</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--data<span class="w"> </span>--as-of-system-time<span class="o">=</span><span class="s1">&#39;-30s&#39;</span>
+</code></pre></div>
+<p>The pinned timestamp is recorded in each manifest as <code>as_of_system_time</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The timestamp must be within the table's garbage-collection window
+(<code>gc.ttlseconds</code>, default 25h). A very long export against an old timestamp
+can fail once the snapshot ages out of GC.</p>
+</div>
 <h2 id="verifying">Verifying<a class="headerlink" href="#verifying" title="Permanent link">&para;</a></h2>
 <p>Re-run with <code>--verify</code> to validate each chunk against its manifest checksum:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--verify
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--verify
 </code></pre></div>
 
 

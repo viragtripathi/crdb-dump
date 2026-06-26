@@ -1854,15 +1854,17 @@ the source (stop writes → dump → restore). For a live/near-zero-downtime tie
 move, use MOLT, and for CockroachDB-to-CockroachDB migrations contact your
 Cockroach Labs account team.</p>
 <h2 id="consistency-caveat">Consistency caveat<a class="headerlink" href="#consistency-caveat" title="Permanent link">&para;</a></h2>
-<p>crdb-dump reads each table independently with <code>OFFSET</code>/<code>LIMIT</code> and <strong>does not use
-<code>AS OF SYSTEM TIME</code></strong>. A dump taken while the database is being written is
-therefore <strong>not</strong> a transactionally consistent snapshot across tables. For a
-consistent dump, quiesce writes for the duration of the export.</p>
-<div class="admonition note">
-<p class="admonition-title">Planned enhancement</p>
-<p>Adding an <code>AS OF SYSTEM TIME</code> option (read all tables at a single cluster
-timestamp) is tracked as future work to make consistent online snapshots
-possible.</p>
+<p>By default crdb-dump reads each table independently with <code>OFFSET</code>/<code>LIMIT</code>, so a
+dump taken while the database is being written is <strong>not</strong> a transactionally
+consistent snapshot across tables.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use <code>--as-of-system-time</code> for a consistent snapshot</p>
+<p>Pass <a href="../export-data/#consistent-snapshots-as-of-system-time"><code>--as-of-system-time</code></a>
+to read every table at one pinned cluster timestamp:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--data<span class="w"> </span>--as-of-system-time
+</code></pre></div>
+<p>The timestamp must stay within the garbage-collection window
+(<code>gc.ttlseconds</code>), so keep exports shorter than that window or raise the TTL.</p>
 </div>
 <h2 id="further-reading">Further reading<a class="headerlink" href="#further-reading" title="Permanent link">&para;</a></h2>
 <ul>

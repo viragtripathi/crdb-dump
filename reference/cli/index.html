@@ -1859,19 +1859,22 @@
 <a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>  --data-parallel           Parallel data export
 <a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>  --data-order-strict       Fail if ordered column(s) not found
 <a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>  --chunk-size INTEGER      Rows per CSV chunk
-<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>  --verify                  Verify exported chunk checksums
-<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>  --verify-strict           Stop if any checksum fails
-<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>  --out-dir TEXT            Output directory for all exports
-<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a>  --print-connection        Print resolved database connection URL and exit
-<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a>  --retry-count INTEGER     Number of retry attempts
-<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a>  --retry-delay INTEGER     Initial retry delay in milliseconds
-<a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a>  --use-s3                  Enable S3 upload/download for data chunks
-<a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a>  --s3-bucket TEXT          S3 bucket to upload to or read from
-<a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a>  --s3-prefix TEXT          S3 key prefix path
-<a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a>  --s3-endpoint TEXT        Custom S3 endpoint (e.g. for Cohesity, MinIO)
-<a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a>  --s3-access-key TEXT      S3 access key
-<a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a>  --s3-secret-key TEXT      S3 secret key
-<a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a>  --help                    Show this message and exit.
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>  --as-of-system-time TEXT  Read data at a consistent snapshot. The bare flag
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>                            pins one cluster_logical_timestamp(); or pass a
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>                            value like &#39;-30s&#39;, a timestamp, or a decimal.
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a>  --verify                  Verify exported chunk checksums
+<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a>  --verify-strict           Stop if any checksum fails
+<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a>  --out-dir TEXT            Output directory for all exports
+<a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a>  --print-connection        Print resolved database connection URL and exit
+<a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a>  --retry-count INTEGER     Number of retry attempts
+<a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a>  --retry-delay INTEGER     Initial retry delay in milliseconds
+<a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a>  --use-s3                  Enable S3 upload/download for data chunks
+<a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a>  --s3-bucket TEXT          S3 bucket to upload to or read from
+<a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a>  --s3-prefix TEXT          S3 key prefix path
+<a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a>  --s3-endpoint TEXT        Custom S3 endpoint (e.g. for Cohesity, MinIO)
+<a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a>  --s3-access-key TEXT      S3 access key
+<a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a>  --s3-secret-key TEXT      S3 secret key
+<a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a>  --help                    Show this message and exit.
 </code></pre></div>
 <h3 id="crdb-dump-load">crdb-dump load<a class="headerlink" href="#crdb-dump-load" title="Permanent link">&para;</a></h3>
 <p><strong>Usage:</strong></p>
