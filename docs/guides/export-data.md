@@ -62,8 +62,37 @@ The pinned timestamp is recorded in each manifest as `as_of_system_time`.
 
 !!! warning
     The timestamp must be within the table's garbage-collection window
-    (`gc.ttlseconds`, default 25h). A very long export against an old timestamp
-    can fail once the snapshot ages out of GC.
+    (`gc.ttlseconds`). A very long export against an old timestamp can fail once
+    the snapshot ages out of GC.
+
+### Follower reads
+
+Use `follower` to read from the **nearest replica** instead of the leaseholder,
+reducing impact on the live workload (and cross-region latency). It pins
+`follower_read_timestamp()` once and reuses it for the whole export:
+
+```bash
+crdb-dump export --db=mydb --data --as-of-system-time=follower
+```
+
+This still produces a consistent snapshot (one pinned timestamp, recorded in each
+manifest). Reads use default priority to stay low-impact, so a read may
+occasionally wait briefly on an unresolved write intent.
+
+!!! note "Requirements & caveats"
+    - Requires a CockroachDB entitlement that enables follower reads. Without it,
+      the export fails fast with a clear message rather than silently reading from
+      the leaseholder.
+    - `follower_read_timestamp()` returns a timestamp **slightly in the past**
+      (CockroachDB's guidance is to use exact-staleness reads when you can tolerate
+      data at least a few seconds old). Objects created in the last few seconds may
+      not be visible at that timestamp — a non-issue for normal exports of existing
+      data. See the [CockroachDB follower-reads docs](https://www.cockroachlabs.com/docs/stable/follower-reads)
+      for current details.
+    - Actual follower routing requires a multi-node cluster; on a single node the
+      read is served locally. Verify with
+      `EXPLAIN ANALYZE SELECT … AS OF SYSTEM TIME follower_read_timestamp()`
+      (look for `used follower read`).
 
 ## Verifying
 
