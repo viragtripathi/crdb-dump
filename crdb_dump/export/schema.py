@@ -1,41 +1,67 @@
 import json
 import os
+import click
 import yaml
 from crdb_dump.utils.common import retry
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import text
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.common import to_json_literal, get_table_locality
 from crdb_dump.utils.io import write_file, archive_output, normalize_filename, validate_fq_table_names
-from crdb_dump.utils.identifiers import quote_ident
+from crdb_dump.utils.identifiers import ObjectName, parse_object_name, quote_ident
+
+def dump_all_ddl(engine, db, logger, retry_count, retry_delay):
+    """Return full-database DDL via native bulk SHOW CREATE statements.
+
+    Emits ``SHOW CREATE ALL TYPES`` first (enums), then ``SHOW CREATE ALL TABLES``
+    which CockroachDB returns dependency-ordered (sequences -> tables -> views) with
+    foreign-key constraints split into trailing ALTER ... ADD CONSTRAINT ... VALIDATE.
+    """
+    parts = []
+    with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
+        conn.execute(text(f"USE {quote_ident(db)}"))
+        try:
+            types = conn.execute(text("SHOW CREATE ALL TYPES"))
+            for row in types:
+                stmt = row[0]
+                if stmt and stmt.strip():
+                    parts.append(stmt.rstrip().rstrip(";") + ";")
+        except Exception as e:
+            logger.warning(f"⚠️ SHOW CREATE ALL TYPES failed: {e}")
+        tables = conn.execute(text("SHOW CREATE ALL TABLES"))
+        for row in tables:
+            stmt = row[0]
+            if stmt and stmt.strip():
+                parts.append(stmt.rstrip().rstrip(";") + ";")
+    return "\n".join(parts) + ("\n" if parts else "")
+
 
 def dump_create_statement(engine, obj_type, full_name, logger, retry_count, retry_delay):
+    obj = parse_object_name(full_name, default_db=full_name.split('.')[0])
     try:
-        db = full_name.split('.')[0]
-        short_name = full_name.split('.')[-1]
         with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
-            conn.execute(text(f"USE {db}"))
+            conn.execute(text(f"USE {quote_ident(obj.database)}"))
             if obj_type == "TYPE":
                 result = conn.execute(text("SHOW CREATE ALL TYPES"))
                 matches = [
                     row[0] for row in result
-                    if row[0].startswith("CREATE TYPE") and f".{short_name} " in row[0]
+                    if row[0] and row[0].startswith("CREATE TYPE") and f".{obj.table} " in row[0]
                 ]
                 if matches:
-                    return matches[0] + ";\n"
-                if not short_name.startswith("crdb_internal"):
-                    logger.warning(f"Type {short_name} not found in SHOW CREATE ALL TYPES output")
+                    return matches[0].rstrip().rstrip(";") + ";\n"
+                if not obj.table.startswith("crdb_internal"):
+                    logger.warning(f"Type {obj.fq_plain()} not found in SHOW CREATE ALL TYPES output")
                 else:
-                    logger.info(f"Skipping internal type: {short_name}")
+                    logger.info(f"Skipping internal type: {obj.fq_plain()}")
                 return None
             else:
-                result = conn.execute(text(f"SHOW CREATE {obj_type} {short_name}"))
+                result = conn.execute(text(f"SHOW CREATE {obj_type} {obj.fq_quoted()}"))
                 rows = list(result)
                 if rows and len(rows[0]) > 1:
-                    return rows[0][1] + ";\n"
+                    return rows[0][1].rstrip().rstrip(";") + ";\n"
                 else:
-                    logger.warning(f"No DDL returned for {obj_type} {full_name}")
+                    logger.warning(f"No DDL returned for {obj_type} {obj.fq_plain()}")
                     return None
     except Exception as e:
         logger.error(f"Failed to get DDL for {obj_type} {full_name}: {e}")
@@ -78,58 +104,54 @@ def collect_objects(engine, db, obj_type, logger, retry_count, retry_delay):
 def resolve_object_types(engine, object_names, logger, retry_count, retry_delay):
     mapping = {}
     with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
-        for obj in object_names:
-            db, name = obj.split('.')
+        for obj_str in object_names:
+            obj = parse_object_name(obj_str, default_db=obj_str.split('.')[0])
+            conn.execute(text(f"USE {quote_ident(obj.database)}"))
             kind = None
 
             try:
-                # Check TABLE
                 res = conn.execute(text(
-                    f"SELECT table_name FROM information_schema.tables "
-                    f"WHERE table_schema = 'public' AND table_name = :name"
-                ), {"name": name}).fetchone()
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = :s AND table_name = :n"
+                ), {"s": obj.schema, "n": obj.table}).fetchone()
                 if res:
                     kind = "TABLE"
             except Exception as e:
-                logger.debug(f"Error checking table for {obj}: {e}")
+                logger.debug(f"Error checking table for {obj.fq_plain()}: {e}")
 
             if not kind:
                 try:
-                    # Check VIEW
                     res = conn.execute(text(
-                        f"SELECT table_name FROM information_schema.views "
-                        f"WHERE table_schema = 'public' AND table_name = :name"
-                    ), {"name": name}).fetchone()
+                        "SELECT 1 FROM information_schema.views "
+                        "WHERE table_schema = :s AND table_name = :n"
+                    ), {"s": obj.schema, "n": obj.table}).fetchone()
                     if res:
                         kind = "VIEW"
-                except:
+                except Exception:
                     pass
 
             if not kind:
                 try:
-                    # Check TYPE
                     res = conn.execute(text(
-                        f"SELECT typname FROM pg_type WHERE typname = :name"
-                    ), {"name": name}).fetchone()
+                        "SELECT 1 FROM pg_type WHERE typname = :n"
+                    ), {"n": obj.table}).fetchone()
                     if res:
                         kind = "TYPE"
-                except:
+                except Exception:
                     pass
 
             if not kind:
                 try:
-                    # Check SEQUENCE
-                    res = conn.execute(text(f"SHOW SEQUENCES")).fetchall()
-                    seqs = [row[1] for row in res]  # db.schema.name format
-                    if name in [s.split('.')[-1] for s in seqs]:
+                    res = conn.execute(text("SHOW SEQUENCES")).fetchall()
+                    if obj.table in [row[1] for row in res]:
                         kind = "SEQUENCE"
-                except:
+                except Exception:
                     pass
 
             if kind:
-                mapping[obj] = kind
+                mapping[obj.fq_plain()] = kind
             else:
-                logger.warning(f"⚠️ Could not determine type of object: {obj}")
+                logger.warning(f"⚠️ Could not determine type of object: {obj.fq_plain()}")
 
     return mapping
 
@@ -151,37 +173,42 @@ def export_schema(opts, out_dir, logger):
     region_filter = opts.get("region")
     locality_map = get_table_locality(engine, db, logger)
 
-    # Wrap retry around critical functions
-    wrapped_dump_create = lambda *args: dump_create_statement(*args, retry_count, retry_delay)
-    wrapped_collect_objects = lambda *args: collect_objects(*args, retry_count, retry_delay)
-    wrapped_resolve_types = lambda *args: resolve_object_types(*args, retry_count, retry_delay)
-    wrapped_dump_permissions = lambda *args: dump_permissions(*args, retry_count, retry_delay)
-
     if include and exclude:
         raise click.UsageError("You cannot use --tables and --exclude-tables at the same time.")
 
+    aggregate_file = f"{out_dir}/{db}_schema.sql"
+
+    # Full-database, unfiltered, single-file SQL output -> native bulk DDL,
+    # which CockroachDB returns in dependency order with FK constraints validated.
+    if not include and not exclude and not region_filter and out_format == "sql" and not per_table:
+        ddl = dump_all_ddl(engine, db, logger, retry_count, retry_delay)
+        write_file(aggregate_file, ddl)
+        logger.info(f"Wrote: {aggregate_file}")
+        if opts.get("include_permissions"):
+            dump_permissions(engine, out_dir, logger, retry_count, retry_delay)
+        return
+
+    # Selective / per-table / json / yaml path (per-object SHOW CREATE).
     if include:
         tables_fq = validate_fq_table_names(include.split(','), db)
-        object_map = wrapped_resolve_types(engine, tables_fq, logger)
-        all_objects = [(typ, fqname) for fqname, typ in object_map.items()]
+        object_map = resolve_object_types(engine, tables_fq, logger, retry_count, retry_delay)
+        all_objects = [(typ, name) for name, typ in object_map.items()]
     else:
-        tables = wrapped_collect_objects(engine, db, 'table', logger)
-        views = wrapped_collect_objects(engine, db, 'view', logger)
-        sequences = wrapped_collect_objects(engine, db, 'sequence', logger)
-        types = wrapped_collect_objects(engine, db, 'type', logger)
+        tables = collect_objects(engine, db, 'table', logger, retry_count, retry_delay)
+        views = collect_objects(engine, db, 'view', logger, retry_count, retry_delay)
+        sequences = collect_objects(engine, db, 'sequence', logger, retry_count, retry_delay)
+        types = collect_objects(engine, db, 'type', logger, retry_count, retry_delay)
 
-        all_objects = [("TABLE", name) for name in tables] + \
-                      [("VIEW", name) for name in views] + \
+        # Dependency-friendly order: types -> sequences -> tables -> views.
+        all_objects = [("TYPE", name) for name in types] + \
                       [("SEQUENCE", name) for name in sequences] + \
-                      [("TYPE", name) for name in types]
+                      [("TABLE", name) for name in tables] + \
+                      [("VIEW", name) for name in views]
 
         if region_filter:
-            def region_matches(fqname):
-                loc = locality_map.get(fqname, "").upper()
-                return region_filter.upper() in loc
-
             before = len(all_objects)
-            all_objects = [obj for obj in all_objects if region_matches(obj[1])]
+            all_objects = [obj for obj in all_objects
+                           if region_filter.upper() in locality_map.get(obj[1], "").upper()]
             logger.info(f"📍 Region filter: {region_filter} — selected {len(all_objects)}/{before} objects")
 
         if exclude:
@@ -189,27 +216,29 @@ def export_schema(opts, out_dir, logger):
             all_objects = [obj for obj in all_objects if obj[1] not in exclude_set]
 
     if opts.get("include_permissions"):
-        wrapped_dump_permissions(engine, out_dir, logger)
+        dump_permissions(engine, out_dir, logger, retry_count, retry_delay)
+
+    # Truncate the aggregate file once before appending per-object DDL.
+    if not per_table and out_format == "sql":
+        write_file(aggregate_file, "")
 
     dump_data = []
 
     def process(obj_type, full_name):
-        ddl = wrapped_dump_create(engine, obj_type, full_name, logger)
+        ddl = dump_create_statement(engine, obj_type, full_name, logger, retry_count, retry_delay)
         if not ddl:
-            return  # ✅ Skip entirely if no DDL returned
+            return  # Skip entirely if no DDL returned
 
-        entry = {"name": full_name, "type": obj_type, "ddl": ddl.strip()}
-        dump_data.append(entry)
+        dump_data.append({"name": full_name, "type": obj_type, "ddl": ddl.strip()})
 
         if per_table and out_format == "sql":
-            filename = f"{out_dir}/{obj_type.lower()}_{full_name.split('.')[-1]}.sql"
+            filename = f"{out_dir}/{obj_type.lower()}_{full_name}.sql"
             write_file(filename, f"-- {obj_type}: {full_name}\n{ddl}\n")
             logger.info(f"Wrote: {filename}")
         elif not per_table and out_format == "sql":
-            filename = f"{out_dir}/{db}_schema.sql"
-            with open(filename, "a") as f:
+            with open(aggregate_file, "a") as f:
                 f.write(f"-- {obj_type}: {full_name}\n{ddl}\n\n")
-            logger.info(f"Wrote: {filename}")
+            logger.info(f"Appended {full_name} to {aggregate_file}")
 
     if parallel:
         with ThreadPoolExecutor() as executor:
@@ -276,7 +305,7 @@ def dump_permissions(engine, out_dir, logger, retry_count, retry_delay):
 
         # Aggregate file
         all_lines = [
-            f"-- Exported at: {datetime.utcnow().isoformat()} UTC",
+            f"-- Exported at: {datetime.now(timezone.utc).isoformat()} UTC",
             "-- ROLES --",
             *roles,
             "",
