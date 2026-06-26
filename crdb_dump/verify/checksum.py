@@ -18,8 +18,9 @@ def verify_checksums(opts, out_dir, logger):
     passed = 0
     missing = 0
 
+    from crdb_dump.utils.identifiers import parse_object_name
     for table in table_list:
-        base_name = table.split('.')[-1]
+        base_name = parse_object_name(table, default_db=opts['db']).file_base()
         manifest_path = os.path.join(out_dir, f"{base_name}.manifest.json")
         if not os.path.exists(manifest_path):
             logger.warning(f"No manifest found for {base_name}")
