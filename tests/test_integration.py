@@ -224,3 +224,57 @@ def test_vector_roundtrip(tmp_path):
     assert vals == ["[1.5,2,3.25]", "[0,0,0]"]
     cur.close()
     conn.close()
+
+
+@pytest.mark.integration
+@pytest.mark.skipif("CRDB_URL" not in os.environ, reason="CRDB_URL must be set")
+def test_aost_excludes_later_writes(tmp_path):
+    import time
+    conn = get_psycopg_connection()
+    conn.autocommit = True  # each statement its own txn so timestamps are ordered
+    cur = conn.cursor()
+    cur.execute("DROP TABLE IF EXISTS aost_t")
+    cur.execute("CREATE TABLE aost_t (id INT PRIMARY KEY)")
+    cur.execute("INSERT INTO aost_t VALUES (1), (2)")
+    cur.execute("SELECT cluster_logical_timestamp()")
+    ts = str(cur.fetchone()[0])
+    time.sleep(0.5)
+    cur.execute("INSERT INTO aost_t VALUES (3)")  # committed strictly after the snapshot
+    cur.close()
+    conn.close()
+
+    out = tmp_path / "out"
+    r = CliRunner().invoke(main, [
+        "export", "--db=defaultdb", "--tables=public.aost_t",
+        "--data", "--data-format=csv", f"--as-of-system-time={ts}",
+        f"--out-dir={out}"])
+    assert r.exit_code == 0, r.output
+
+    import json
+    manifest = json.load(open(out / "defaultdb" / "defaultdb.public.aost_t.manifest.json"))
+    assert manifest["as_of_system_time"] == ts
+    rows = sum(c["rows"] for c in manifest["chunks"])
+    assert rows == 2  # row id=3 (inserted after ts) is excluded
+
+
+@pytest.mark.integration
+@pytest.mark.skipif("CRDB_URL" not in os.environ, reason="CRDB_URL must be set")
+def test_aost_bare_flag_pins_timestamp(tmp_path):
+    conn = get_psycopg_connection()
+    cur = conn.cursor()
+    cur.execute("DROP TABLE IF EXISTS aost_b")
+    cur.execute("CREATE TABLE aost_b (id INT PRIMARY KEY)")
+    cur.execute("INSERT INTO aost_b VALUES (1)")
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    out = tmp_path / "out"
+    r = CliRunner().invoke(main, [
+        "export", "--db=defaultdb", "--tables=public.aost_b",
+        "--data", "--data-format=csv", "--as-of-system-time", f"--out-dir={out}"])
+    assert r.exit_code == 0, r.output
+
+    import json
+    manifest = json.load(open(out / "defaultdb" / "defaultdb.public.aost_b.manifest.json"))
+    assert manifest["as_of_system_time"]  # populated with a pinned timestamp
