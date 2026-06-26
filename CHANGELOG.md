@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-_No changes yet._
+### Added
+- `--as-of-system-time` on `export`: read all table data at one pinned cluster
+  timestamp for a consistent point-in-time snapshot. The bare flag pins
+  `cluster_logical_timestamp()`; an explicit value (interval, timestamp, or
+  decimal) is used verbatim. The pinned timestamp is recorded in each manifest as
+  `as_of_system_time`.
 
 ## 0.4.0 — 2026-06-26
 

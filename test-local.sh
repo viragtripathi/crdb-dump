@@ -182,6 +182,16 @@ test -f "$BASE_OUT_DIR/${DB_NAME}.public.embeddings.manifest.json" \
   && echo "✅ VECTOR table (embeddings) exported" \
   || { echo "❌ VECTOR table NOT exported"; exit 1; }
 
+echo "🕒 Testing --as-of-system-time (consistent snapshot)..."
+$CRDB_DUMP --verbose export --db="$DB_NAME" --tables=public.users \
+  --data --data-format=csv --as-of-system-time --out-dir="$OUT_DIR/aost"
+$PYTHON - "$OUT_DIR/aost/$DB_NAME/${DB_NAME}.public.users.manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m.get("as_of_system_time"), "manifest missing as_of_system_time"
+print("✅ AOST timestamp recorded:", m["as_of_system_time"])
+PY
+
 echo "🧪 Verifying chunks..."
 $CRDB_DUMP --verbose export \
   --db="$DB_NAME" \
