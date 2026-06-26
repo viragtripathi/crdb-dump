@@ -1,7 +1,7 @@
 [![Tests](https://github.com/viragtripathi/crdb-dump/actions/workflows/python-ci.yml/badge.svg)](https://github.com/viragtripathi/crdb-dump/actions/workflows/python-ci.yml)
 [![PyPI version](https://badge.fury.io/py/crdb-dump.svg)](https://badge.fury.io/py/crdb-dump)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Downloads](https://static.pepy.tech/badge/crdb-dump/month)](https://pepy.tech/project/crdb-dump)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/crdb-dump?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/crdb-dump)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://viragtripathi.github.io/crdb-dump/)
 
