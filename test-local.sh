@@ -192,6 +192,19 @@ assert m.get("as_of_system_time"), "manifest missing as_of_system_time"
 print("✅ AOST timestamp recorded:", m["as_of_system_time"])
 PY
 
+echo "🛰️  Testing --as-of-system-time=follower (tolerant of entitlement)..."
+if $CRDB_DUMP --verbose export --db="$DB_NAME" --tables=public.users \
+     --data --data-format=csv --as-of-system-time=follower \
+     --out-dir="$OUT_DIR/follower" 2>"$OUT_DIR/follower.err"; then
+  echo "✅ follower-read export succeeded"
+else
+  if grep -q "Follower reads are not available" "$OUT_DIR/follower.err"; then
+    echo "ℹ️  follower reads not entitled on this cluster — clean error, OK"
+  else
+    echo "❌ unexpected follower-read failure:"; cat "$OUT_DIR/follower.err"; exit 1
+  fi
+fi
+
 echo "🧪 Verifying chunks..."
 $CRDB_DUMP --verbose export \
   --db="$DB_NAME" \

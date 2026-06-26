@@ -292,8 +292,8 @@ def test_aost_follower_keyword(tmp_path):
     cur.execute("INSERT INTO fr_t VALUES (1), (2)")
     cur.close()
     conn.close()
-    # follower_read_timestamp() is ~4.2s in the past; wait so the table and rows
-    # already exist at that timestamp (otherwise the read sees no such table).
+    # follower_read_timestamp() reads slightly in the past; wait so the table and
+    # rows already exist at that timestamp (otherwise the read sees no such table).
     time.sleep(6)
 
     out = tmp_path / "out"

@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-_No changes yet._
+### Added
+- `--as-of-system-time=follower`: pin `follower_read_timestamp()` so exports are
+  served by the nearest replica (follower reads), keeping the consistent-snapshot
+  guarantee. Reads use default priority to stay low-impact. Fails fast with a clear
+  message if the cluster lacks the follower-reads entitlement.
 
 ## 0.5.0 — 2026-06-26
 
