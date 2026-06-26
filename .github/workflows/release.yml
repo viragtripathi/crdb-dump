@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 0.4.0 (must match the version in pyproject.toml)"
+        required: true
+
+permissions:
+  contents: write   # create the GitHub Release
+  id-token: write   # OIDC for PyPI Trusted Publishing
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" build
+
+      - name: Verify version matches pyproject.toml
+        run: |
+          PKG_VERSION=$(python -c "import importlib.metadata as m; print(m.version('crdb-dump'))")
+          echo "package version: $PKG_VERSION  |  requested: ${{ inputs.version }}"
+          if [ "$PKG_VERSION" != "${{ inputs.version }}" ]; then
+            echo "::error::Version mismatch: pyproject.toml is $PKG_VERSION but you requested ${{ inputs.version }}. Bump the version in pyproject.toml (and CHANGELOG.md) first."
+            exit 1
+          fi
+
+      - name: Start CockroachDB (single node)
+        run: |
+          docker run -d --name crdb -p 26257:26257 -p 8080:8080 \
+            cockroachdb/cockroach:latest-v25.4 start-single-node --insecure
+          for i in $(seq 1 30); do
+            if docker exec crdb ./cockroach sql --insecure -e "SELECT 1" >/dev/null 2>&1; then
+              echo "CockroachDB ready"; break
+            fi
+            echo "waiting for crdb..."; sleep 2
+          done
+
+      - name: Run full test suite
+        env:
+          CRDB_URL: cockroachdb://root@localhost:26257/defaultdb?sslmode=disable
+        run: pytest -ra -q
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/*
