@@ -5,6 +5,22 @@ set -euo pipefail
 # script -c $(cockroach demo --nodes=3 --demo-locality=region=us-east1:region=us-west1:region=us-central1 --no-example-database --empty) /dev/null >/dev/null
 #
 
+# Resolve the crdb-dump CLI: prefer the installed console script, otherwise fall
+# back to running the module directly (works as long as the package is importable,
+# e.g. after `pip install -e .` even without the console script on PATH).
+if command -v crdb-dump >/dev/null 2>&1; then
+  CRDB_DUMP="crdb-dump"
+elif python -c "import crdb_dump" >/dev/null 2>&1; then
+  CRDB_DUMP="python -m crdb_dump.cli"
+elif python3 -c "import crdb_dump" >/dev/null 2>&1; then
+  CRDB_DUMP="python3 -m crdb_dump.cli"
+else
+  echo "❌ crdb-dump not found. Install it first, e.g.:"
+  echo "     python -m venv .venv && source .venv/bin/activate && pip install -e ."
+  exit 1
+fi
+echo "🔧 Using CLI: $CRDB_DUMP"
+
 DB_NAME="defaultdb"
 OUT_DIR="tmp/export-test"
 BASE_OUT_DIR="$OUT_DIR/$DB_NAME"
@@ -135,7 +151,7 @@ cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
 "
 
 echo "📦 Exporting schema (full-DB DDL) and data..."
-crdb-dump --verbose export \
+$CRDB_DUMP --verbose export \
   --db="$DB_NAME" \
   --data \
   --data-format=csv \
@@ -151,13 +167,13 @@ test -f "$BASE_OUT_DIR/${DB_NAME}.public.embeddings.manifest.json" \
   || { echo "❌ VECTOR table NOT exported"; exit 1; }
 
 echo "🧪 Verifying chunks..."
-crdb-dump --verbose export \
+$CRDB_DUMP --verbose export \
   --db="$DB_NAME" \
   --verify \
   --out-dir="$OUT_DIR"
 
 echo "🔍 Dry run import (should not write to DB)..."
-crdb-dump --verbose load \
+$CRDB_DUMP --verbose load \
   --db="$DB_NAME" \
   --schema="$SCHEMA_FILE" \
   --data-dir="$DATA_DIR" \
@@ -174,7 +190,7 @@ echo "✅ Database recreated empty"
 
 echo "🧪 Full restore with --validate-csv and --parallel-load"
 rm -rf "$OUT_DIR/resume-main"
-crdb-dump --verbose load \
+$CRDB_DUMP --verbose load \
   --db="$DB_NAME" \
   --schema="$SCHEMA_FILE" \
   --data-dir="$DATA_DIR" \
@@ -196,7 +212,7 @@ for ORDER_FLAG in "" "--data-order=id" "--data-order=id --data-order-desc"; do
     for LIMIT in 100 1000 ""; do
       echo "▶️ Exporting with $ORDER_FLAG $PARALLEL --data-limit=$LIMIT"
       OUT_SUBDIR="$OUT_DIR/variant_$(date +%s%N)"
-      crdb-dump --verbose export \
+      $CRDB_DUMP --verbose export \
         --db="$DB_NAME" \
         --per-table \
         --data \
@@ -207,14 +223,14 @@ for ORDER_FLAG in "" "--data-order=id" "--data-order=id --data-order-desc"; do
         ${LIMIT:+--data-limit=$LIMIT} \
         --out-dir="$OUT_SUBDIR"
 
-      crdb-dump --verbose export --db="$DB_NAME" --verify --out-dir="$OUT_SUBDIR"
+      $CRDB_DUMP --verbose export --db="$DB_NAME" --verify --out-dir="$OUT_SUBDIR"
     done
   done
 done
 
 echo "🧪 Testing resume idempotency..."
 echo "▶️ Re-running the load — every chunk should be SKIPPED (already loaded)..."
-RESUME_OUT=$(crdb-dump --verbose load \
+RESUME_OUT=$($CRDB_DUMP --verbose load \
   --db="$DB_NAME" \
   --data-dir="$DATA_DIR" \
   --resume-log-dir="$OUT_DIR/resume-main" \
@@ -229,7 +245,7 @@ echo "✅ Resume idempotency verified (no chunk reloaded)"
 
 if [ "$MULTIREGION" = true ]; then
   echo "🌍 Exporting $PRIMARY_REGION only..."
-  crdb-dump --verbose export \
+  $CRDB_DUMP --verbose export \
     --db="$DB_NAME" \
     --data \
     --per-table \
@@ -239,7 +255,7 @@ if [ "$MULTIREGION" = true ]; then
     --out-dir="$OUT_DIR/$PRIMARY_REGION"
 
   echo "🌍 Exporting $SECOND_REGION only..."
-  crdb-dump --verbose export \
+  $CRDB_DUMP --verbose export \
     --db="$DB_NAME" \
     --data \
     --per-table \
@@ -288,7 +304,7 @@ except ClientError as e:
 EOF
 
 echo "📤 Testing export to MinIO S3..."
-crdb-dump --verbose export \
+$CRDB_DUMP --verbose export \
   --db="$DB_NAME" \
   --data \
   --data-format=csv \
@@ -308,12 +324,12 @@ cockroach sql --insecure --host=localhost -e "
 "
 
 echo "📐 Loading schema before S3 data import..."
-crdb-dump --verbose load \
+$CRDB_DUMP --verbose load \
   --db="$DB_NAME" \
   --schema="$OUT_DIR/s3-test/$DB_NAME/${DB_NAME}_schema.sql"
 
 echo "📥 Testing import from MinIO S3..."
-crdb-dump --verbose load \
+$CRDB_DUMP --verbose load \
   --db="$DB_NAME" \
   --data-dir="$OUT_DIR/s3-test/$DB_NAME" \
   --resume-log-dir="$OUT_DIR/s3-test-resume" \
