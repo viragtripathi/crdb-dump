@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crdb-dump"
-version = "0.4.0"
+version = "0.5.0"
 description = "A CLI tool to export and import schema definitions and data from CockroachDB in SQL, JSON, YAML, or chunked CSV formats."
 
 authors = [

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+_No changes yet._
+
+## 0.5.0 — 2026-06-26
+
 ### Added
 - `--as-of-system-time` on `export`: read all table data at one pinned cluster
   timestamp for a consistent point-in-time snapshot. The bare flag pins
