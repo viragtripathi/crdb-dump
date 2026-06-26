@@ -159,18 +159,20 @@ def get_type_and_args(col_type_and_args: list):
     raise ValueError(f"Unsupported type: {datatype}")
 
 def get_table_locality(engine, db, logger):
-    """Returns a dict mapping fq_table_name => locality string (or 'N/A')."""
+    """Returns a dict mapping db.schema.table => locality string (or 'N/A')."""
+    from crdb_dump.utils.identifiers import quote_ident
     mapping = {}
     try:
         with engine.connect() as conn:
-            conn.execute(text(f"USE {db}"))
-            result = conn.execute(text(f"SHOW TABLES FROM {db}"))
+            conn.execute(text(f"USE {quote_ident(db)}"))
+            result = conn.execute(text("SHOW TABLES"))
 
             for row in result:
                 # Expect: schema_name, table_name, type, owner, estimated_row_count, locality
+                schema_name = row[0]
                 table_name = row[1]
                 locality = row[5] if len(row) > 5 else "N/A"
-                fqname = f"{db}.{table_name}"
+                fqname = f"{db}.{schema_name}.{table_name}"
                 mapping[fqname] = locality or "N/A"
     except Exception as e:
         logger.warning(f"⚠️ Failed to retrieve table localities: {e}")
