@@ -45,6 +45,16 @@ DATA_DIR="$BASE_OUT_DIR"
 LOG_FILE="logs/crdb_dump.log"
 RESUME_FILE="$OUT_DIR/resume.json"
 
+# This is a LOCAL end-to-end harness: setup uses `cockroach sql --host=localhost`,
+# but crdb-dump honors $CRDB_URL. If an external CRDB_URL is inherited (e.g. a
+# Cloud cluster), crdb-dump would target a DIFFERENT cluster than the setup — and
+# could run destructive load/drop steps against it. Pin CRDB_URL to the local
+# cluster so everything targets the same place. (Not the password — never echoed.)
+if [ -n "${CRDB_URL:-}" ]; then
+  echo "⚠️  An external CRDB_URL is set; overriding it to the local cluster for this run."
+fi
+export CRDB_URL="cockroachdb://root@localhost:26257/${DB_NAME}?sslmode=disable"
+
 echo "🚀 Ensuring MinIO is running..."
 
 MINIO_CONTAINER="crdb-minio"
