@@ -10,15 +10,19 @@ from sqlalchemy import text
 from crdb_dump.export.schema import collect_objects
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.common import to_sql_literal, to_csv_literal
+from crdb_dump.utils.identifiers import parse_object_name, quote_ident
 
 
 def export_table_data(engine, table, out_dir, export_format, split, limit, compress, order, order_desc,
                       chunk_size, order_strict, logger, locality_map, retry_count, retry_delay, opts):
     try:
-        db, tbl = table.split('.')
-        base_name = tbl.replace('.', '_')
+        obj = parse_object_name(table, default_db=table.split('.')[0])
+        base_name = obj.file_base()
         with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
-            cols_res = conn.execute(text(f"SELECT column_name FROM information_schema.columns WHERE table_name='{tbl}'"))
+            cols_res = conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = :t AND table_schema = :s ORDER BY ordinal_position"
+            ), {"t": obj.table, "s": obj.schema})
             columns = [row[0] for row in cols_res]
             if order:
                 for col in order.split(','):
@@ -50,7 +54,7 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                 return h.hexdigest()
 
             while True:
-                query = f"SELECT * FROM {table} {order_clause} OFFSET {offset} LIMIT {batch_size}"
+                query = f"SELECT * FROM {obj.fq_quoted()} {order_clause} OFFSET {offset} LIMIT {batch_size}"
                 if limit and offset >= limit:
                     break
                 rows = conn.execute(text(query)).fetchall()
@@ -61,8 +65,10 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
 
                 out_path = os.path.join(
                     out_dir,
-                    f"{base_name}_chunk_{chunk_index:03d}.csv.gz" if compress else f"{base_name}_chunk_{chunk_index:03d}.csv"
-                ) if export_format == 'csv' else os.path.join(out_dir, f"{base_name}_chunk_{chunk_index:03d}_data.sql")
+                    f"{base_name}_{chunk_index:03d}.csv.gz" if compress
+                    else f"{base_name}_{chunk_index:03d}.csv"
+                ) if export_format == 'csv' else os.path.join(
+                    out_dir, f"{base_name}_{chunk_index:03d}.sql")
 
                 if export_format == 'csv':
                     open_func = gzip.open if compress else open
@@ -72,10 +78,11 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                         writer.writerow(columns)
                         writer.writerows([[to_csv_literal(v) for v in row] for row in rows])
                 elif export_format == 'sql':
+                    col_list = ", ".join(quote_ident(c) for c in columns)
                     with open(out_path, 'w') as f:
                         for row in rows:
                             vals = ", ".join(to_sql_literal(v) for v in row)
-                            f.write(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES ({vals});\n")
+                            f.write(f"INSERT INTO {obj.fq_quoted()} ({col_list}) VALUES ({vals});\n")
 
                 checksum = file_checksum(out_path)
                 manifest.append({
@@ -105,7 +112,7 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
             region = locality_map.get(table, "N/A")
             with open(manifest_path, 'w') as mf:
                 json.dump({
-                    "table": table,
+                    "table": obj.fq_plain(),
                     "region": region,
                     "chunks": manifest
                 }, mf, indent=2)
@@ -165,7 +172,7 @@ def export_data(opts, out_dir, logger):
     else:
         results = [wrapped_export(*args) for args in data_tasks]
 
-    table_row_counts = {tbl.split('.')[-1]: count for tbl, count in zip([t[1] for t in data_tasks], results)}
+    table_row_counts = {t[1]: count for t, count in zip(data_tasks, results)}
     total_rows = sum(table_row_counts.values())
 
     for table, count in table_row_counts.items():
