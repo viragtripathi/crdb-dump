@@ -38,6 +38,11 @@ dependencies = [
 dev = [
     "pytest>=8.0"
 ]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocs-click>=0.8",
+    "pymdown-extensions>=10.7",
+]
 
 [project.scripts]
 crdb-dump = "crdb_dump.cli:main"

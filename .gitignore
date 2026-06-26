@@ -39,3 +39,4 @@ resume/
 # cockroach single-node aux output
 heap_profiler/
 cockroach-data/
+site/
