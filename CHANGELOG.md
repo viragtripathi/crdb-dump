@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## Unreleased
+
+_No changes yet._
+
+## 0.4.0 — 2026-06-26
 
 ### Breaking
 - Object naming is now three-part `database.schema.table` everywhere
