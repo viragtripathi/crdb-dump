@@ -1864,7 +1864,8 @@ to read every table at one pinned cluster timestamp:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>crdb-dump<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--db<span class="o">=</span>mydb<span class="w"> </span>--data<span class="w"> </span>--as-of-system-time
 </code></pre></div>
 <p>The timestamp must stay within the garbage-collection window
-(<code>gc.ttlseconds</code>), so keep exports shorter than that window or raise the TTL.</p>
+(<a href="https://www.cockroachlabs.com/docs/stable/configure-replication-zones#gc-ttlseconds"><code>gc.ttlseconds</code></a>),
+so keep exports shorter than that window or raise the TTL.</p>
 </div>
 <h2 id="further-reading">Further reading<a class="headerlink" href="#further-reading" title="Permanent link">&para;</a></h2>
 <ul>
