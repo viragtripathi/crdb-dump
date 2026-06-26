@@ -49,10 +49,11 @@ def test_cli_missing_db():
     assert "--db" in result.output
 
 def test_csv_literal_bytes():
-    assert to_csv_literal(b"\x01\x02") == "0102"
+    # bytea hex format so COPY ... WITH CSV decodes back to bytes
+    assert to_csv_literal(b"\x01\x02") == r"\x0102"
 
 def test_csv_literal_memoryview():
-    assert to_csv_literal(memoryview(b"\x03\x04")) == "0304"
+    assert to_csv_literal(memoryview(b"\x03\x04")) == r"\x0304"
 
 def test_csv_literal_string():
     assert to_csv_literal("hello") == "hello"

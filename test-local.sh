@@ -74,6 +74,15 @@ cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
   ALTER TABLE logins SET LOCALITY REGIONAL BY TABLE IN 'us-west1';
 "
 
+echo "📐 Creating non-public schema objects + a VECTOR column..."
+cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
+  CREATE SCHEMA IF NOT EXISTS cpkit;
+  CREATE TABLE cpkit.tasks (id INT PRIMARY KEY, name STRING);
+  INSERT INTO cpkit.tasks VALUES (1,'a'),(2,'b'),(3,'c');
+  CREATE TABLE embeddings (id INT PRIMARY KEY, embd VECTOR(3));
+  INSERT INTO embeddings VALUES (1,'[1.5,2,3.25]'),(2,'[0,0,0]');
+"
+
 echo "📊 Inserting test data..."
 cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
   INSERT INTO users
@@ -100,6 +109,14 @@ crdb-dump --verbose export \
   --data-format=csv \
   --chunk-size=1000 \
   --out-dir="$OUT_DIR"
+
+echo "🔎 Asserting non-public schema + VECTOR were exported..."
+test -f "$BASE_OUT_DIR/${DB_NAME}.cpkit.tasks.manifest.json" \
+  && echo "✅ non-public schema (cpkit.tasks) exported" \
+  || { echo "❌ non-public schema NOT exported"; exit 1; }
+test -f "$BASE_OUT_DIR/${DB_NAME}.public.embeddings.manifest.json" \
+  && echo "✅ VECTOR table (embeddings) exported" \
+  || { echo "❌ VECTOR table NOT exported"; exit 1; }
 
 echo "🧪 Verifying chunks..."
 crdb-dump --verbose export \

@@ -7,59 +7,56 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  unit:
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build
-          pip install .[test]
-          pip install pytest
+          pip install -e ".[dev]"
 
-      - name: Start CockroachDB (latest)
+      - name: Run unit tests
+        run: pytest -ra -q -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
         run: |
-          docker run -d \
-            --name crdb \
-            -p 26257:26257 \
-            -p 8080:8080 \
-            cockroachdb/cockroach:latest \
-            start-single-node --insecure
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
-      - name: Set CRDB_URL environment variable
+      - name: Start CockroachDB (single node)
+        run: |
+          docker run -d --name crdb -p 26257:26257 -p 8080:8080 \
+            cockroachdb/cockroach:latest-v25.4 start-single-node --insecure
+          for i in $(seq 1 30); do
+            if docker exec crdb ./cockroach sql --insecure -e "SELECT 1" >/dev/null 2>&1; then
+              echo "CockroachDB ready"; break
+            fi
+            echo "waiting for crdb..."; sleep 2
+          done
+
+      - name: Set CRDB_URL
         run: echo "CRDB_URL=cockroachdb://root@localhost:26257/defaultdb?sslmode=disable" >> $GITHUB_ENV
 
-      - name: Wait for DB to be ready
-        run: sleep 5
-
-      - name: Initialize test database
-        run: |
-          docker exec crdb ./cockroach sql --insecure --host=localhost -e "
-            USE defaultdb;
-            CREATE TABLE users (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              name STRING
-            );
-            INSERT INTO users (name) VALUES
-              ('Alice'), ('Bob'), ('Virag'), ('Allen'), ('Andrew'), ('David');
-          "
-
-      - name: Build package
-        run: python -m build
-
-      - name: Install project
-        run: pip install .
-
-      - name: Run all tests
-        run: pytest -ra -q -m "not integration or integration"
-
-      - name: Check for log file
-        run: test -f logs/crdb_dump.log
+      - name: Run integration tests
+        run: pytest -ra -q -m integration

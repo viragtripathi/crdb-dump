@@ -5,15 +5,30 @@
 
 # crdb-dump
 
-A feature-rich CLI for exporting and importing CockroachDB schemas and data. Includes support for parallel chunked exports, manifest checksums, BYTES/UUID/ARRAY types, permission introspection, secure resumable imports, S3-compatible storage (MinIO, Cohesity), region-aware filtering, and automatic retry logic.
+A feature-rich CLI for exporting and importing CockroachDB schemas and data. Includes support for parallel chunked exports, manifest checksums, BYTES/UUID/ARRAY/VECTOR types, multi-schema (non-`public`) objects, permission introspection, secure resumable imports, S3-compatible storage (MinIO, Cohesity), region-aware filtering, and automatic retry logic.
+
+> **Requires Python 3.10+.**
+
+> ### ⚠️ Breaking changes in 0.4.0
+> - All object names are now three-part `database.schema.table` (filenames,
+>   manifests, resume-log keys, and `--tables` input). Objects in non-`public`
+>   schemas are now exported and restored correctly.
+> - `--tables` two-part input means `schema.table` (database taken from `--db`),
+>   not the old `database.table`. Use `db.schema.table` to be explicit, or a bare
+>   `table` for the `public` schema.
+> - Data chunk files are now `db.schema.table_NNN.csv|sql`; manifests are
+>   `db.schema.table.manifest.json`. Pre-0.4.0 dumps are not compatible.
+>
+> See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ---
 
 ## 🚀 Features
 
-* ✅ Schema export: tables, views, sequences, enums
+* ✅ Schema export: tables, views, sequences, enums (objects in any schema, not just `public`)
+* ✅ Full-database dumps use native `SHOW CREATE ALL TABLES`/`ALL TYPES` (dependency-ordered, FK constraints validated post-load)
 * ✅ Data export: CSV or SQL with chunking, gzip, and ordering
-* ✅ Types: handles BYTES, UUIDs, STRING\[], TIMESTAMP, enums
+* ✅ Types: handles BYTES, UUIDs, STRING\[], TIMESTAMP, enums, VECTOR
 * ✅ Schema output formats: `sql`, `json`, `yaml`
 * ✅ Resumable `COPY`-based imports with chunk-level tracking
 * ✅ Permission exports: roles, grants, role memberships
@@ -114,11 +129,11 @@ crdb-dump export \
 
 | Option                  | Description                                   |
 | ----------------------- | --------------------------------------------- |
-| `--per-table`           | One file per object (e.g., `table_users.sql`) |
+| `--per-table`           | One file per object (e.g., `table_mydb.public.users.sql`) |
 | `--format`              | Output format: `sql`, `json`, `yaml`          |
 | `--diff`                | Show schema diff vs previous `.sql` file      |
-| `--tables`              | Comma-separated FQ names to include           |
-| `--exclude-tables`      | Skip specific FQ table names                  |
+| `--tables`              | Comma-separated names to include: `table`, `schema.table`, or `db.schema.table` |
+| `--exclude-tables`      | Skip specific table names (same forms as `--tables`) |
 | `--include-permissions` | Export roles, grants, and memberships         |
 | `--region`              | Only export tables matching this region       |
 
@@ -239,9 +254,20 @@ crdb_dump_output/mydb/mydb_schema.diff
 
 ## 🧪 Testing
 
+Requires Python 3.10+.
+
 ```bash
-pytest -m unit
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Unit tests (no database needed)
+pytest -m "not integration"
+
+# Integration tests (need a reachable CockroachDB)
+export CRDB_URL="cockroachdb://root@localhost:26257/defaultdb?sslmode=disable"
 pytest -m integration
+
+# Full end-to-end (needs cockroach + Docker/MinIO)
 ./test-local.sh
 ```
 

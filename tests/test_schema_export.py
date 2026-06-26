@@ -11,18 +11,22 @@ def _conn_with(execute_results):
     return conn
 
 
-def test_dump_all_ddl_types_then_tables():
+def test_dump_all_ddl_schemas_types_then_tables():
     conn = _conn_with([
         None,                                                       # USE db
+        iter([("public",), ("cpkit",)]),                            # SHOW SCHEMAS
         iter([("CREATE TYPE cpkit.status AS ENUM ('a');",)]),        # SHOW CREATE ALL TYPES
         iter([("CREATE TABLE cpkit.tasks (id INT8 PRIMARY KEY);",)]),  # SHOW CREATE ALL TABLES
     ])
     eng = MagicMock()
     eng.connect.return_value = conn
     out = dump_all_ddl(eng, "cp", logging.getLogger("t"), 1, 0.0)
+    assert 'CREATE SCHEMA IF NOT EXISTS "cpkit"' in out
+    assert "CREATE SCHEMA IF NOT EXISTS \"public\"" not in out  # system schema skipped
     assert "CREATE TYPE cpkit.status" in out
     assert "CREATE TABLE cpkit.tasks" in out
-    assert out.index("CREATE TYPE") < out.index("CREATE TABLE cpkit.tasks")
+    # Ordering: schema -> type -> table.
+    assert out.index("CREATE SCHEMA") < out.index("CREATE TYPE") < out.index("CREATE TABLE cpkit.tasks")
 
 
 def test_dump_create_statement_uses_quoted_fq_name():

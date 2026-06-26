@@ -59,10 +59,12 @@ def to_sql_literal(val):
     return str(val)
 
 def to_csv_literal(val):
+    # BYTES must use the bytea hex format ('\x' prefix) so COPY ... WITH CSV
+    # decodes them back to bytes instead of storing the literal hex characters.
     if isinstance(val, memoryview):
-        return val.tobytes().hex()
+        return r'\x' + val.tobytes().hex()
     if isinstance(val, (bytes, bytearray)):
-        return val.hex()
+        return r'\x' + val.hex()
     if isinstance(val, list):
         def escape_csv_array_item(item):
             if item is None:

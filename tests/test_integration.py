@@ -141,6 +141,48 @@ def test_non_public_schema_roundtrip(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("CRDB_URL" not in os.environ, reason="CRDB_URL must be set")
+def test_bytes_csv_roundtrip(tmp_path):
+    """BYTES values must survive a full CSV export/load round-trip (bytea hex)."""
+    conn = get_psycopg_connection()
+    cur = conn.cursor()
+    cur.execute("DROP TABLE IF EXISTS bcsv")
+    cur.execute("CREATE TABLE bcsv (id INT PRIMARY KEY, v BYTES)")
+    cur.execute("INSERT INTO bcsv VALUES (1, %s), (2, %s)", (b'\x01\x02', b'\xff'))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    out = tmp_path / "bout"
+    runner = CliRunner()
+    r = runner.invoke(main, [
+        "export", "--db=defaultdb", "--tables=public.bcsv",
+        "--per-table", "--data", "--data-format=csv", f"--out-dir={out}"])
+    assert r.exit_code == 0, r.output
+
+    db_dir = out / "defaultdb"
+    conn = get_psycopg_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM bcsv")
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    r = runner.invoke(main, [
+        "load", "--db=defaultdb", f"--data-dir={db_dir}", "--validate-csv",
+        f"--resume-log-dir={tmp_path}/resume"])
+    assert r.exit_code == 0, r.output
+
+    conn = get_psycopg_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT encode(v, 'hex') FROM bcsv ORDER BY id")
+    vals = [row[0] for row in cur.fetchall()]
+    assert vals == ["0102", "ff"]
+    cur.close()
+    conn.close()
+
+
+@pytest.mark.integration
+@pytest.mark.skipif("CRDB_URL" not in os.environ, reason="CRDB_URL must be set")
 def test_vector_roundtrip(tmp_path):
     """VECTOR values must survive a full CSV export/load round-trip."""
     conn = get_psycopg_connection()
