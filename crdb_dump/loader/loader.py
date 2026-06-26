@@ -2,12 +2,24 @@ import csv
 import json
 import os
 import psycopg2.extras
+import sqlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import text
 from crdb_dump.utils.common import retry
 from crdb_dump.utils.db_connection import get_psycopg_connection
 from crdb_dump.utils.identifiers import parse_object_name
 from crdb_dump.utils.s3 import get_s3_client, download_file_from_s3
+
+
+def _split_sql_statements(sql):
+    """Split a SQL script into individual statements.
+
+    Uses sqlparse so semicolons inside string literals, UDF bodies, and
+    dollar-quoted blocks do not split a statement incorrectly.
+    """
+    return [s.strip().rstrip(";").strip()
+            for s in sqlparse.split(sql)
+            if s.strip().rstrip(";").strip()]
 
 
 def load_schema(schema_path, engine, logger):
@@ -17,7 +29,7 @@ def load_schema(schema_path, engine, logger):
 
     with open(schema_path) as f:
         sql = f.read()
-    statements = [stmt.strip() for stmt in sql.split(';') if stmt.strip()]
+    statements = _split_sql_statements(sql)
 
     try:
         with engine.begin() as conn:
