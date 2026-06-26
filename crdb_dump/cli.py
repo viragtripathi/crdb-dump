@@ -50,9 +50,10 @@ def main(ctx, verbose):
 @click.option('--data-order-strict', is_flag=True, help='Fail if ordered column(s) not found')
 @click.option('--chunk-size', type=int, default=None, help='Rows per CSV chunk')
 @click.option('--as-of-system-time', 'aost', is_flag=False, flag_value='auto', default=None,
-              help="Read data at a consistent snapshot. The bare flag pins one "
-                   "cluster_logical_timestamp(); or pass a value like '-30s', a "
-                   "timestamp, or a decimal.")
+              help="Read data at a consistent snapshot. Use 'auto' (or the bare flag) "
+                   "to pin cluster_logical_timestamp(), 'follower' to pin "
+                   "follower_read_timestamp() for follower reads, or pass a value like "
+                   "'-30s', a timestamp, or a decimal.")
 @click.option('--verify', is_flag=True, help='Verify exported chunk checksums')
 @click.option('--verify-strict', is_flag=True, help='Stop if any checksum fails')
 @click.option('--out-dir', default='crdb_dump_output', help='Output directory for all exports')
