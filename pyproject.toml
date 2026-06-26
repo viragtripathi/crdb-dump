@@ -39,7 +39,7 @@ dev = [
     "pytest>=8.0"
 ]
 docs = [
-    "mkdocs-material>=9.5",
+    "mkdocs-material[imaging]>=9.5",
     "mkdocs-click>=0.8",
     "pymdown-extensions>=10.7",
 ]
