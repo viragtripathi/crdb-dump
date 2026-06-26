@@ -283,6 +283,7 @@ def test_aost_bare_flag_pins_timestamp(tmp_path):
 @pytest.mark.integration
 @pytest.mark.skipif("CRDB_URL" not in os.environ, reason="CRDB_URL must be set")
 def test_aost_follower_keyword(tmp_path):
+    import time
     conn = get_psycopg_connection()
     conn.autocommit = True
     cur = conn.cursor()
@@ -291,6 +292,9 @@ def test_aost_follower_keyword(tmp_path):
     cur.execute("INSERT INTO fr_t VALUES (1), (2)")
     cur.close()
     conn.close()
+    # follower_read_timestamp() is ~4.2s in the past; wait so the table and rows
+    # already exist at that timestamp (otherwise the read sees no such table).
+    time.sleep(6)
 
     out = tmp_path / "out"
     r = CliRunner().invoke(main, [
