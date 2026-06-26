@@ -76,3 +76,9 @@ nav:
       - Region-Aware: guides/region-aware.md
       - S3-Compatible Storage: guides/s3-storage.md
       - Migration & Limitations: guides/migration-limitations.md
+  - Recipes:
+      - Full Dump & Restore: recipes/full-dump-restore.md
+      - Selective Tables: recipes/selective-tables.md
+      - Cross-Environment Copy: recipes/cross-env-copy.md
+      - S3 Round-Trip: recipes/s3-round-trip.md
+      - Verify & Resume: recipes/verify-resume.md
