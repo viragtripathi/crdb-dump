@@ -32,14 +32,19 @@ theme:
     - content.code.copy
     - content.code.annotate
 
+# Brainstorming/planning docs live under docs/superpowers/ but are not part of
+# the published site.
+exclude_docs: |
+  superpowers/
+
 plugins:
   - search
-  - mkdocs-click
 
 markdown_extensions:
   - admonition
   - attr_list
   - md_in_html
+  - mkdocs-click
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
