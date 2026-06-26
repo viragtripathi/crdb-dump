@@ -82,3 +82,7 @@ nav:
       - Cross-Environment Copy: recipes/cross-env-copy.md
       - S3 Round-Trip: recipes/s3-round-trip.md
       - Verify & Resume: recipes/verify-resume.md
+  - CLI Reference:
+      - Commands: reference/cli.md
+      - Naming Model: reference/naming-model.md
+      - Manifest Format: reference/manifest-format.md
