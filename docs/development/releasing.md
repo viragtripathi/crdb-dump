@@ -14,8 +14,11 @@ On PyPI, add a Trusted Publisher for the `crdb-dump` project:
 
 ## Cutting a release
 
-1. Bump `version` in `pyproject.toml` and update `CHANGELOG.md`; merge to `main`.
-2. Run **Actions → Release → Run workflow** and enter the same version (e.g. `0.4.0`).
+1. Bump `version` in `pyproject.toml`.
+2. In `CHANGELOG.md`, rename the `## Unreleased` section to `## <version> — <YYYY-MM-DD>`
+   and add a fresh empty `## Unreleased` section above it.
+3. Merge to `main`.
+4. Run **Actions → Release → Run workflow** and enter the same version (e.g. `0.4.0`).
 
 The workflow verifies the input matches the packaged version, runs the full test
 suite against a CockroachDB container, builds the sdist/wheel, publishes to PyPI,
