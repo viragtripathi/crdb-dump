@@ -11,6 +11,7 @@ from crdb_dump.export.schema import collect_objects
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.common import to_sql_literal, to_csv_literal
 from crdb_dump.utils.identifiers import parse_object_name, quote_ident
+from crdb_dump.utils.io import validate_fq_table_names
 
 
 def export_table_data(engine, table, out_dir, export_format, split, limit, compress, order, order_desc,
@@ -141,8 +142,11 @@ def export_data(opts, out_dir, logger):
         print(str(engine.url))
         return
 
-    table_list = opts['tables'].split(',') if opts['tables'] else []
-    if not table_list:
+    if opts['tables']:
+        # Normalize user-provided names (table / schema.table / db.schema.table)
+        # to three-part db.schema.table using --db as the default database.
+        table_list = validate_fq_table_names(opts['tables'].split(','), opts['db'])
+    else:
         table_list = collect_objects(engine, opts['db'], 'table', logger, retry_count, retry_delay)
 
     if region_filter:
