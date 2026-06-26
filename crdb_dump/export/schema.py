@@ -19,8 +19,17 @@ def dump_all_ddl(engine, db, logger, retry_count, retry_delay):
     foreign-key constraints split into trailing ALTER ... ADD CONSTRAINT ... VALIDATE.
     """
     parts = []
+    system_schemas = {"public", "crdb_internal", "information_schema", "pg_catalog", "pg_extension"}
     with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
         conn.execute(text(f"USE {quote_ident(db)}"))
+        try:
+            schemas = conn.execute(text("SHOW SCHEMAS"))
+            for row in schemas:
+                schema_name = row[0]
+                if schema_name not in system_schemas:
+                    parts.append(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(schema_name)};")
+        except Exception as e:
+            logger.warning(f"⚠️ SHOW SCHEMAS failed: {e}")
         try:
             types = conn.execute(text("SHOW CREATE ALL TYPES"))
             for row in types:

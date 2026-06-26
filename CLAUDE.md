@@ -40,15 +40,19 @@ this is both a correctness fix (mixed-case/reserved/non-public names) and a safe
 
 ## Schema DDL
 
-- Full-database export: `SHOW CREATE ALL TYPES` then `SHOW CREATE ALL TABLES`
-  (dependency-ordered, FK constraints split into trailing `ALTER ... VALIDATE`).
+- Full-database export: `CREATE SCHEMA IF NOT EXISTS` for user schemas, then
+  `SHOW CREATE ALL TYPES`, then `SHOW CREATE ALL TABLES` (dependency-ordered, FK
+  constraints split into trailing `ALTER ... VALIDATE`).
 - Selective export: per-object `SHOW CREATE <type> <fq_quoted>`.
+- BYTES are encoded as bytea hex (`\x...`) in CSV so `COPY` restores them
+  correctly; in SQL they use `decode('...','hex')`.
 
 ## Working rules (user preferences)
 
 - **Test before proposing a push.** Every change must have passing **unit +
-  integration + e2e** coverage. Run `pytest -m unit`, `pytest -m integration`
-  (with `CRDB_URL`), and `./test-local.sh` before asking to push.
+  integration + e2e** coverage. Run `pytest -m "not integration"`,
+  `pytest -m integration` (with `CRDB_URL`), and `./test-local.sh` before
+  asking to push.
 - **No bot commit messages.** Plain, human-style messages. No `Co-Authored-By`,
   no "Generated with …" trailers.
 
@@ -58,7 +62,7 @@ this is both a correctness fix (mixed-case/reserved/non-public names) and a safe
 export CRDB_URL="cockroachdb://root@localhost:26257/defaultdb?sslmode=disable"
 pip install -e ".[dev]"
 
-pytest -m unit
+pytest -m "not integration"
 pytest -m integration   # requires CRDB_URL + reachable cluster
 ./test-local.sh         # full e2e (needs cockroach + docker/MinIO)
 ```
