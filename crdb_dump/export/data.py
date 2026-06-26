@@ -154,8 +154,13 @@ def export_data(opts, out_dir, logger):
             aost = str(conn.execute(text("SELECT cluster_logical_timestamp()")).scalar())
     elif aost == "follower":
         try:
+            # Cast to CRDB's native timestamp string (e.g. '2026-06-26 19:20:03.25+00')
+            # which AOST accepts. The raw timestamptz would be reformatted by the
+            # driver to '+00:00' (rejected), and ::DECIMAL is in seconds, not the
+            # nanosecond scale AOST decimals use.
             with engine.connect() as conn:
-                aost = str(conn.execute(text("SELECT follower_read_timestamp()")).scalar())
+                aost = str(conn.execute(
+                    text("SELECT follower_read_timestamp()::STRING")).scalar())
         except Exception as e:
             raise click.UsageError(
                 "Follower reads are not available on this cluster "

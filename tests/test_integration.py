@@ -278,3 +278,31 @@ def test_aost_bare_flag_pins_timestamp(tmp_path):
     import json
     manifest = json.load(open(out / "defaultdb" / "defaultdb.public.aost_b.manifest.json"))
     assert manifest["as_of_system_time"]  # populated with a pinned timestamp
+
+
+@pytest.mark.integration
+@pytest.mark.skipif("CRDB_URL" not in os.environ, reason="CRDB_URL must be set")
+def test_aost_follower_keyword(tmp_path):
+    conn = get_psycopg_connection()
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("DROP TABLE IF EXISTS fr_t")
+    cur.execute("CREATE TABLE fr_t (id INT PRIMARY KEY)")
+    cur.execute("INSERT INTO fr_t VALUES (1), (2)")
+    cur.close()
+    conn.close()
+
+    out = tmp_path / "out"
+    r = CliRunner().invoke(main, [
+        "export", "--db=defaultdb", "--tables=public.fr_t",
+        "--data", "--data-format=csv", "--as-of-system-time=follower",
+        f"--out-dir={out}"])
+
+    if r.exit_code == 0:
+        import json
+        manifest = json.load(open(out / "defaultdb" / "defaultdb.public.fr_t.manifest.json"))
+        assert manifest["as_of_system_time"]  # a pinned follower timestamp
+    else:
+        # Cluster lacks the follower-reads entitlement: must be a clean message.
+        assert "Follower reads are not available" in r.output
+        assert "Traceback" not in r.output
