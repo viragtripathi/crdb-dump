@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import json
 import os
+import click
 from crdb_dump.utils.common import retry, get_table_locality
 from crdb_dump.utils.s3 import get_s3_client, upload_file_to_s3
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -151,6 +152,16 @@ def export_data(opts, out_dir, logger):
     if aost == "auto":
         with engine.connect() as conn:
             aost = str(conn.execute(text("SELECT cluster_logical_timestamp()")).scalar())
+    elif aost == "follower":
+        try:
+            with engine.connect() as conn:
+                aost = str(conn.execute(text("SELECT follower_read_timestamp()")).scalar())
+        except Exception as e:
+            raise click.UsageError(
+                "Follower reads are not available on this cluster "
+                "(requires a CockroachDB entitlement that enables follower reads): "
+                f"{e}")
+    if aost is not None:
         logger.info(f"🕒 Pinned AS OF SYSTEM TIME {aost}")
     opts["aost_resolved"] = aost
 

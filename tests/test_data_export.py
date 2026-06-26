@@ -63,3 +63,39 @@ def test_export_table_data_records_aost(tmp_path):
     manifest = json.load(open(tmp_path / "cp.cpkit.tasks.manifest.json"))
     assert manifest["as_of_system_time"] == "1750.0"
     assert any("AS OF SYSTEM TIME '1750.0'" in s for s in captured["stmts"])
+
+
+def _engine_returning_scalar(value=None, raises=None):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    if raises is not None:
+        conn.execute.side_effect = raises
+    else:
+        conn.execute.return_value = MagicMock(scalar=lambda: value)
+    engine = MagicMock()
+    engine.connect.return_value = conn
+    return engine
+
+
+def test_export_data_resolves_follower(monkeypatch, tmp_path):
+    engine = _engine_returning_scalar(value="1750.5")
+    monkeypatch.setattr(data_mod, "get_sqlalchemy_engine", lambda opts: engine)
+    monkeypatch.setattr(data_mod, "get_table_locality", lambda e, db, lg: {})
+    monkeypatch.setattr(data_mod, "collect_objects", lambda *a, **k: [])
+    opts = {"db": "d", "tables": None, "aost": "follower", "region": None,
+            "data_parallel": False, "retry_count": 1, "retry_delay": 0}
+    data_mod.export_data(opts, str(tmp_path), logging.getLogger("t"))
+    assert opts["aost_resolved"] == "1750.5"
+
+
+def test_export_data_follower_unavailable_raises(monkeypatch, tmp_path):
+    import click
+    import pytest
+    engine = _engine_returning_scalar(raises=Exception("requires enterprise"))
+    monkeypatch.setattr(data_mod, "get_sqlalchemy_engine", lambda opts: engine)
+    monkeypatch.setattr(data_mod, "get_table_locality", lambda e, db, lg: {})
+    opts = {"db": "d", "tables": None, "aost": "follower", "region": None,
+            "data_parallel": False, "retry_count": 1, "retry_delay": 0}
+    with pytest.raises(click.UsageError):
+        data_mod.export_data(opts, str(tmp_path), logging.getLogger("t"))
