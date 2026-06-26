@@ -27,6 +27,18 @@ def retry(retries=3, delay=1.0, backoff=2.0, exceptions=RETRYABLE_EXCEPTIONS):
         return wrapper
     return decorator_retry
 
+def aost_clause(resolved_value):
+    """Return an ' AS OF SYSTEM TIME ...' SQL fragment, or '' when no AOST.
+
+    The value is single-quoted, which CockroachDB accepts for decimals,
+    intervals (e.g. ``-30s``), and timestamps.
+    """
+    if not resolved_value:
+        return ""
+    escaped = str(resolved_value).replace("'", "''")
+    return f" AS OF SYSTEM TIME '{escaped}'"
+
+
 def to_sql_literal(val):
     if val is None:
         return 'NULL'
