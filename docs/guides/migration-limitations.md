@@ -29,15 +29,20 @@ Cockroach Labs account team.
 
 ## Consistency caveat
 
-crdb-dump reads each table independently with `OFFSET`/`LIMIT` and **does not use
-`AS OF SYSTEM TIME`**. A dump taken while the database is being written is
-therefore **not** a transactionally consistent snapshot across tables. For a
-consistent dump, quiesce writes for the duration of the export.
+By default crdb-dump reads each table independently with `OFFSET`/`LIMIT`, so a
+dump taken while the database is being written is **not** a transactionally
+consistent snapshot across tables.
 
-!!! note "Planned enhancement"
-    Adding an `AS OF SYSTEM TIME` option (read all tables at a single cluster
-    timestamp) is tracked as future work to make consistent online snapshots
-    possible.
+!!! tip "Use `--as-of-system-time` for a consistent snapshot"
+    Pass [`--as-of-system-time`](export-data.md#consistent-snapshots-as-of-system-time)
+    to read every table at one pinned cluster timestamp:
+
+    ```bash
+    crdb-dump export --db=mydb --data --as-of-system-time
+    ```
+
+    The timestamp must stay within the garbage-collection window
+    (`gc.ttlseconds`), so keep exports shorter than that window or raise the TTL.
 
 ## Further reading
 

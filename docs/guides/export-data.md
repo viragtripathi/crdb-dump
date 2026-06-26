@@ -44,6 +44,27 @@ crdb-dump export --db=mydb --data --data-parallel      # export tables concurren
 crdb-dump export --db=mydb --data --data-limit=100000  # cap rows per table
 ```
 
+## Consistent snapshots (`--as-of-system-time`)
+
+By default each table is read independently, so a dump of a live database is not
+consistent across tables. Use `--as-of-system-time` to read every table (and every
+chunk) at one pinned cluster timestamp:
+
+```bash
+# pin one cluster_logical_timestamp() for the whole export
+crdb-dump export --db=mydb --data --as-of-system-time
+
+# or pass an explicit interval / timestamp / decimal
+crdb-dump export --db=mydb --data --as-of-system-time='-30s'
+```
+
+The pinned timestamp is recorded in each manifest as `as_of_system_time`.
+
+!!! warning
+    The timestamp must be within the table's garbage-collection window
+    (`gc.ttlseconds`, default 25h). A very long export against an old timestamp
+    can fail once the snapshot ages out of GC.
+
 ## Verifying
 
 Re-run with `--verify` to validate each chunk against its manifest checksum:
