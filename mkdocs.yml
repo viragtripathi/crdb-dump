@@ -86,3 +86,10 @@ nav:
       - Commands: reference/cli.md
       - Naming Model: reference/naming-model.md
       - Manifest Format: reference/manifest-format.md
+  - Development:
+      - Contributing: development/contributing.md
+      - Testing: development/testing.md
+      - Releasing: development/releasing.md
+  - About:
+      - Changelog: about/changelog.md
+      - License: about/license.md
