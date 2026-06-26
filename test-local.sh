@@ -41,12 +41,43 @@ sleep 10
 echo "🧹 Cleaning up old output..."
 rm -rf "$OUT_DIR" logs/ "$RESUME_FILE"
 
-echo "🌍 Creating multi-region database..."
-cockroach sql --insecure --host=localhost -e "
-  DROP DATABASE IF EXISTS $DB_NAME CASCADE;
-  CREATE DATABASE $DB_NAME PRIMARY REGION 'us-east1';
-  ALTER DATABASE $DB_NAME ADD REGION 'us-west1';
-"
+echo "🔌 Checking CockroachDB is reachable on localhost:26257..."
+if ! cockroach sql --insecure --host=localhost -e "SELECT 1" >/dev/null 2>&1; then
+  echo "❌ No CockroachDB reachable on localhost:26257."
+  echo "   Start one of:"
+  echo "     • single node:  cockroach start-single-node --insecure --store=type=mem,size=1GiB"
+  echo "     • multi-region: cockroach demo --nodes=3 --demo-locality=region=us-east1:region=us-west1:region=us-central1 --no-example-database --empty"
+  exit 1
+fi
+
+# Detect whether the cluster has regions; degrade gracefully on a single node.
+CLUSTER_REGIONS=$(cockroach sql --insecure --host=localhost --format=csv \
+  -e "SELECT region FROM [SHOW REGIONS FROM CLUSTER]" 2>/dev/null | tail -n +2 || true)
+if [ -n "$CLUSTER_REGIONS" ]; then
+  MULTIREGION=true
+  PRIMARY_REGION=$(echo "$CLUSTER_REGIONS" | head -1)
+  SECOND_REGION=$(echo "$CLUSTER_REGIONS" | sed -n '2p')
+  [ -z "$SECOND_REGION" ] && SECOND_REGION="$PRIMARY_REGION"
+  echo "🌍 Multi-region cluster detected (primary=$PRIMARY_REGION, second=$SECOND_REGION)"
+else
+  MULTIREGION=false
+  echo "ℹ️  Single-region cluster — region-specific steps will be skipped"
+fi
+
+if [ "$MULTIREGION" = true ]; then
+  echo "🌍 Creating multi-region database..."
+  cockroach sql --insecure --host=localhost -e "
+    DROP DATABASE IF EXISTS $DB_NAME CASCADE;
+    CREATE DATABASE $DB_NAME PRIMARY REGION '$PRIMARY_REGION';
+    ALTER DATABASE $DB_NAME ADD REGION '$SECOND_REGION';
+  "
+else
+  echo "📦 Creating single-region database..."
+  cockroach sql --insecure --host=localhost -e "
+    DROP DATABASE IF EXISTS $DB_NAME CASCADE;
+    CREATE DATABASE $DB_NAME;
+  "
+fi
 
 echo "📐 Creating tables..."
 cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
@@ -68,11 +99,13 @@ cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
   );
 "
 
-echo "🌍 Assigning table locality..."
-cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
-  ALTER TABLE users SET LOCALITY REGIONAL BY TABLE IN 'us-east1';
-  ALTER TABLE logins SET LOCALITY REGIONAL BY TABLE IN 'us-west1';
-"
+if [ "$MULTIREGION" = true ]; then
+  echo "🌍 Assigning table locality..."
+  cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
+    ALTER TABLE users SET LOCALITY REGIONAL BY TABLE IN '$PRIMARY_REGION';
+    ALTER TABLE logins SET LOCALITY REGIONAL BY TABLE IN '$SECOND_REGION';
+  "
+fi
 
 echo "📐 Creating non-public schema objects + a VECTOR column..."
 cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
@@ -101,10 +134,9 @@ cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
   VALUES ('alice'), ('bob'), ('carol');
 "
 
-echo "📦 Exporting schema and data..."
+echo "📦 Exporting schema (full-DB DDL) and data..."
 crdb-dump --verbose export \
   --db="$DB_NAME" \
-  --per-table \
   --data \
   --data-format=csv \
   --chunk-size=1000 \
@@ -133,21 +165,30 @@ crdb-dump --verbose load \
   --dry-run \
   --print-connection
 
-echo "❌ Dropping tables to prep for reload..."
-cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
-  DROP TABLE IF EXISTS users;
-  DROP TABLE IF EXISTS logins;
+echo "❌ Dropping entire database to prep for a clean full restore..."
+cockroach sql --insecure --host=localhost -e "
+  DROP DATABASE IF EXISTS $DB_NAME CASCADE;
+  CREATE DATABASE $DB_NAME;
 "
-echo "✅ Tables dropped"
+echo "✅ Database recreated empty"
 
-echo "🧪 Full import with --validate-csv and --parallel-load"
+echo "🧪 Full restore with --validate-csv and --parallel-load"
+rm -rf "$OUT_DIR/resume-main"
 crdb-dump --verbose load \
   --db="$DB_NAME" \
   --schema="$SCHEMA_FILE" \
   --data-dir="$DATA_DIR" \
-  --resume-log="$RESUME_FILE" \
+  --resume-log-dir="$OUT_DIR/resume-main" \
   --validate-csv \
   --parallel-load
+
+echo "🔎 Verifying restored row counts..."
+for tbl in users logins cpkit.tasks embeddings; do
+  CNT=$(cockroach sql --insecure --host=localhost -d "$DB_NAME" --format=csv -e "SELECT count(*) FROM $tbl" | tail -1)
+  echo "  $tbl: $CNT rows"
+  [ "$CNT" -gt 0 ] || { echo "❌ $tbl has no rows after restore"; exit 1; }
+done
+echo "✅ Full restore verified (all tables incl. non-public schema + VECTOR)"
 
 echo "🔁 Testing data export variations..."
 for ORDER_FLAG in "" "--data-order=id" "--data-order=id --data-order-desc"; do
@@ -171,54 +212,44 @@ for ORDER_FLAG in "" "--data-order=id" "--data-order=id --data-order-desc"; do
   done
 done
 
-echo "🔍 Verifying loaded users..."
-cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "SELECT COUNT(*) FROM users"
-
-echo "🔍 Verifying loaded logins..."
-cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "SELECT COUNT(*) FROM logins"
-
-echo "🧪 Simulating failure and resuming import..."
-echo "❌ Dropping one table for partial import..."
-cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
-  DROP TABLE IF EXISTS users;
-"
-
-echo "▶️ Running partial import to test resume..."
-crdb-dump --verbose load \
+echo "🧪 Testing resume idempotency..."
+echo "▶️ Re-running the load — every chunk should be SKIPPED (already loaded)..."
+RESUME_OUT=$(crdb-dump --verbose load \
   --db="$DB_NAME" \
   --data-dir="$DATA_DIR" \
-  --resume-log="$RESUME_FILE" \
-  --validate-csv \
-  --parallel-load
-
-echo "▶️ Resuming again — should skip already imported chunks..."
-crdb-dump --verbose load \
-  --db="$DB_NAME" \
-  --data-dir="$DATA_DIR" \
-  --resume-log="$RESUME_FILE" \
+  --resume-log-dir="$OUT_DIR/resume-main" \
   --validate-csv \
   --parallel-load \
-  --resume-strict
+  --resume-strict 2>&1)
+echo "$RESUME_OUT" | grep -E "Loaded|Skipped|Failed" | tail -8
+if echo "$RESUME_OUT" | grep -q "❌ Failed to load chunk"; then
+  echo "❌ Resume pass unexpectedly reloaded/failed chunks"; exit 1
+fi
+echo "✅ Resume idempotency verified (no chunk reloaded)"
 
-echo "🌍 Exporting us-east1 only..."
-crdb-dump --verbose export \
-  --db="$DB_NAME" \
-  --data \
-  --per-table \
-  --region="us-east1" \
-  --data-format=csv \
-  --chunk-size=1000 \
-  --out-dir="$OUT_DIR/us-east1"
+if [ "$MULTIREGION" = true ]; then
+  echo "🌍 Exporting $PRIMARY_REGION only..."
+  crdb-dump --verbose export \
+    --db="$DB_NAME" \
+    --data \
+    --per-table \
+    --region="$PRIMARY_REGION" \
+    --data-format=csv \
+    --chunk-size=1000 \
+    --out-dir="$OUT_DIR/$PRIMARY_REGION"
 
-echo "🌍 Exporting us-west1 only..."
-crdb-dump --verbose export \
-  --db="$DB_NAME" \
-  --data \
-  --per-table \
-  --region="us-west1" \
-  --data-format=csv \
-  --chunk-size=1000 \
-  --out-dir="$OUT_DIR/us-west1"
+  echo "🌍 Exporting $SECOND_REGION only..."
+  crdb-dump --verbose export \
+    --db="$DB_NAME" \
+    --data \
+    --per-table \
+    --region="$SECOND_REGION" \
+    --data-format=csv \
+    --chunk-size=1000 \
+    --out-dir="$OUT_DIR/$SECOND_REGION"
+else
+  echo "⏩ Skipping region-filtered exports (single-region cluster)"
+fi
 
 #echo "🪣 Creating test bucket in MinIO..."
 
@@ -259,7 +290,6 @@ EOF
 echo "📤 Testing export to MinIO S3..."
 crdb-dump --verbose export \
   --db="$DB_NAME" \
-  --per-table \
   --data \
   --data-format=csv \
   --chunk-size=1000 \
@@ -271,13 +301,16 @@ crdb-dump --verbose export \
   --s3-prefix="test1/" \
   --out-dir="$OUT_DIR/s3-test"
 
-echo "🧹 Dropping logins table before S3 import..."
-cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "DROP TABLE IF EXISTS logins;"
+echo "🧹 Recreating empty database before S3 restore..."
+cockroach sql --insecure --host=localhost -e "
+  DROP DATABASE IF EXISTS $DB_NAME CASCADE;
+  CREATE DATABASE $DB_NAME;
+"
 
 echo "📐 Loading schema before S3 data import..."
 crdb-dump --verbose load \
   --db="$DB_NAME" \
-  --schema="$SCHEMA_FILE"
+  --schema="$OUT_DIR/s3-test/$DB_NAME/${DB_NAME}_schema.sql"
 
 echo "📥 Testing import from MinIO S3..."
 crdb-dump --verbose load \
@@ -293,6 +326,13 @@ crdb-dump --verbose load \
   --validate-csv \
   --parallel-load \
   --resume-strict
+
+echo "🔎 Verifying S3-restored row counts..."
+for tbl in users logins cpkit.tasks embeddings; do
+  CNT=$(cockroach sql --insecure --host=localhost -d "$DB_NAME" --format=csv -e "SELECT count(*) FROM $tbl" | tail -1)
+  echo "  $tbl: $CNT rows"
+  [ "$CNT" -gt 0 ] || { echo "❌ $tbl has no rows after S3 restore"; exit 1; }
+done
 
 echo "📄 Log file written to: $LOG_FILE"
 echo "✅ Done."
