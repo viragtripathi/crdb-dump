@@ -8,6 +8,7 @@ from sqlalchemy import text
 from crdb_dump.utils.db_connection import get_sqlalchemy_engine
 from crdb_dump.utils.common import to_json_literal, get_table_locality
 from crdb_dump.utils.io import write_file, archive_output, normalize_filename, validate_fq_table_names
+from crdb_dump.utils.identifiers import quote_ident
 
 def dump_create_statement(engine, obj_type, full_name, logger, retry_count, retry_delay):
     try:
@@ -41,28 +42,35 @@ def dump_create_statement(engine, obj_type, full_name, logger, retry_count, retr
         return None
 
 def collect_objects(engine, db, obj_type, logger, retry_count, retry_delay):
+    # SHOW TABLES/SEQUENCES/TYPES expose (schema, name, ...) in columns 0 and 1.
     query_map = {
         'table': "SHOW TABLES",
-        'view': "SELECT table_name FROM information_schema.views WHERE table_schema NOT IN ('pg_catalog', 'information_schema')",
+        'view': ("SELECT table_schema, table_name FROM information_schema.views "
+                 "WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'crdb_internal')"),
         'sequence': "SHOW SEQUENCES",
-        'type': "SHOW TYPES"
+        'type': "SHOW TYPES",
     }
     objs = []
     try:
         with retry(retries=retry_count, delay=retry_delay)(engine.connect)() as conn:
-            conn.execute(text(f"USE {db}"))
+            conn.execute(text(f"USE {quote_ident(db)}"))
             result = conn.execute(text(query_map[obj_type]))
             for row in result:
-                name = row[0] if obj_type == 'view' else row[1] if obj_type in ['table', 'sequence', 'type'] else None
-                if name:
-                    if obj_type == 'type':
-                        enum_check = conn.execute(
-                            text(f"SELECT * FROM pg_type WHERE typname = '{name}' AND typtype = 'e'")
-                        ).fetchall()
-                        if not enum_check:
-                            logger.warning(f"Skipping non-enum type: {name}")
-                            continue
-                    objs.append(f"{db}.{name}")
+                if obj_type in ('view', 'table', 'sequence', 'type'):
+                    schema, name = row[0], row[1]
+                else:
+                    continue
+                if not name:
+                    continue
+                if obj_type == 'type':
+                    enum_check = conn.execute(
+                        text("SELECT 1 FROM pg_type WHERE typname = :n AND typtype = 'e'"),
+                        {"n": name},
+                    ).fetchall()
+                    if not enum_check:
+                        logger.warning(f"Skipping non-enum type: {schema}.{name}")
+                        continue
+                objs.append(f"{db}.{schema}.{name}")
     except Exception as e:
         logger.error(f"Error fetching {obj_type}s: {e}")
     return objs
