@@ -3,12 +3,15 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Downloads](https://static.pepy.tech/badge/crdb-dump/month)](https://pepy.tech/project/crdb-dump)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://viragtripathi.github.io/crdb-dump/)
 
 # crdb-dump
 
 A feature-rich CLI for exporting and importing CockroachDB schemas and data. Includes support for parallel chunked exports, manifest checksums, BYTES/UUID/ARRAY/VECTOR types, multi-schema (non-`public`) objects, permission introspection, secure resumable imports, S3-compatible storage (MinIO, Cohesity), region-aware filtering, and automatic retry logic.
 
 > **Requires Python 3.10+.**
+
+📖 **Documentation:** https://viragtripathi.github.io/crdb-dump/
 
 > ### ⚠️ Breaking changes in 0.4.0
 > - All object names are now three-part `database.schema.table` (filenames,
