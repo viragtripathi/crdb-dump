@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import text
 from crdb_dump.utils.common import retry
 from crdb_dump.utils.db_connection import get_psycopg_connection
+from crdb_dump.utils.identifiers import parse_object_name
 from crdb_dump.utils.s3 import get_s3_client, download_file_from_s3
 
 
@@ -29,10 +30,14 @@ def load_schema(schema_path, engine, logger):
         return False
 
 
-def validate_csv_header(table, filepath, logger):
-    conn = get_psycopg_connection()
+def validate_csv_header(table, filepath, logger, opts=None):
+    obj = parse_object_name(table, default_db=table.split('.')[0])
+    conn = get_psycopg_connection(opts)
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s ORDER BY ordinal_position", (table.split('.')[-1],))
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = %s AND table_schema = %s ORDER BY ordinal_position",
+            (obj.table, obj.schema))
         db_columns = [row[0] for row in cur.fetchall()]
 
     with open(filepath, 'r') as f:
@@ -60,14 +65,15 @@ def load_chunk(table, file_path, engine, logger, validate=False, opts=None):
             download_file_from_s3(s3, opts["s3_bucket"], s3_key, local_path)
             logger.info(f"☁️ Downloaded from S3: s3://{opts['s3_bucket']}/{s3_key}")
 
-        if validate and not validate_csv_header(table, local_path, logger):
+        if validate and not validate_csv_header(table, local_path, logger, opts):
             logger.error(f"Skipping load for {file_path} due to header mismatch.")
             return False
 
-        conn = get_psycopg_connection()
+        obj = parse_object_name(table, default_db=table.split('.')[0])
+        conn = get_psycopg_connection(opts)
         with conn.cursor() as cur:
             with open(local_path, "r") as f:
-                sql = f"COPY {table} FROM STDIN WITH CSV HEADER"
+                sql = f"COPY {obj.fq_quoted()} FROM STDIN WITH CSV HEADER"
                 cur.copy_expert(sql, f)
         conn.commit()
         conn.close()
