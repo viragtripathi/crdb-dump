@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crdb-dump"
-version = "0.3.0"
+version = "0.4.0"
 description = "A CLI tool to export and import schema definitions and data from CockroachDB in SQL, JSON, YAML, or chunked CSV formats."
 
 authors = [
@@ -12,25 +12,31 @@ authors = [
 ]
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Quality Assurance",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    "sqlalchemy",
-    "sqlalchemy-cockroachdb",
-    "click",
-    "pyyaml",
-    "psycopg2-binary",
-    "boto3"
+    "sqlalchemy>=2.0.51",
+    "sqlalchemy-cockroachdb>=2.0.4",
+    "click>=8.4.2",
+    "pyyaml>=6.0.3",
+    "psycopg2-binary>=2.9.12",
+    "boto3>=1.43.36",
+    "sqlparse>=0.5.5"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0"
 ]
 
 [project.scripts]
@@ -38,3 +44,11 @@ crdb-dump = "crdb_dump.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["crdb_dump*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+markers = [
+    "integration: mark a test as requiring CockroachDB (e.g., Docker-based)",
+]

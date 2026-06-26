@@ -29,3 +29,13 @@ dist/
 *.egg-info/
 __pycache__/
 venv/
+.venv/
+.pytest_cache/
+crdb_dump_output/
+tmp/
+resume.json
+resume/
+
+# cockroach single-node aux output
+heap_profiler/
+cockroach-data/
