@@ -5,21 +5,37 @@ set -euo pipefail
 # script -c $(cockroach demo --nodes=3 --demo-locality=region=us-east1:region=us-west1:region=us-central1 --no-example-database --empty) /dev/null >/dev/null
 #
 
-# Resolve the crdb-dump CLI: prefer the installed console script, otherwise fall
-# back to running the module directly (works as long as the package is importable,
-# e.g. after `pip install -e .` even without the console script on PATH).
+# Resolve the crdb-dump CLI. We must verify the package imports *with its
+# dependencies* (psycopg2, sqlalchemy, ...). Importing bare `crdb_dump` succeeds
+# from the source tree even when nothing is installed, so we import
+# `crdb_dump.cli`, which pulls the full dependency chain.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_can_run() { "$@" -c "import crdb_dump.cli" >/dev/null 2>&1; }
+
+# Find a Python interpreter that can import the package WITH its dependencies
+# (psycopg2, sqlalchemy, boto3, ...). boto3 is a dependency, so this interpreter
+# is also used for the inline MinIO bucket-creation snippet below.
+PYTHON=""
+for cand in "$SCRIPT_DIR/.venv/bin/python" python python3; do
+  if command -v "$cand" >/dev/null 2>&1 && _can_run "$cand"; then PYTHON="$cand"; break; fi
+done
+
 if command -v crdb-dump >/dev/null 2>&1; then
   CRDB_DUMP="crdb-dump"
-elif python -c "import crdb_dump" >/dev/null 2>&1; then
-  CRDB_DUMP="python -m crdb_dump.cli"
-elif python3 -c "import crdb_dump" >/dev/null 2>&1; then
-  CRDB_DUMP="python3 -m crdb_dump.cli"
+elif [ -n "$PYTHON" ]; then
+  CRDB_DUMP="$PYTHON -m crdb_dump.cli"
 else
-  echo "❌ crdb-dump not found. Install it first, e.g.:"
+  echo "❌ crdb-dump is not installed with its dependencies."
+  echo "   Install it (a virtualenv is recommended):"
   echo "     python -m venv .venv && source .venv/bin/activate && pip install -e ."
+  echo "   Then re-run ./test-local.sh"
   exit 1
 fi
+# Ensure we have a deps-capable interpreter for the boto3 snippet even if the
+# console script was found on PATH.
+if [ -z "$PYTHON" ]; then PYTHON="python3"; fi
 echo "🔧 Using CLI: $CRDB_DUMP"
+echo "🔧 Using Python: $PYTHON"
 
 DB_NAME="defaultdb"
 OUT_DIR="tmp/export-test"
@@ -278,7 +294,7 @@ fi
 #  minio/mc mb --ignore-existing localminio/$MINIO_BUCKET
 
 echo "🪣 Creating test bucket in MinIO via boto3..."
-python3 - <<EOF
+$PYTHON - <<EOF
 import boto3
 from botocore.exceptions import ClientError
 
