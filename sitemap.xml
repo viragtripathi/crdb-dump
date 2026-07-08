@@ -2,118 +2,118 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/about/changelog/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/about/license/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/development/contributing/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/development/releasing/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/development/testing/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/getting-started/configuration/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/getting-started/installation/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/getting-started/quickstart/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/export-data/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/export-schema/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/import-restore/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/migration-limitations/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/multi-schema/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/permissions/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/region-aware/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/s3-storage/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/guides/type-handling/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/recipes/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/recipes/cross-env-copy/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/recipes/full-dump-restore/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/recipes/s3-round-trip/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/recipes/selective-tables/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/recipes/verify-resume/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/reference/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/reference/cli/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/reference/manifest-format/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
     <url>
          <loc>https://viragtripathi.github.io/crdb-dump/reference/naming-model/</loc>
-         <lastmod>2026-06-26</lastmod>
+         <lastmod>2026-07-08</lastmod>
     </url>
 </urlset>
