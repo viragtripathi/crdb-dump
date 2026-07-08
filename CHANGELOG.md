@@ -2,7 +2,19 @@
 
 ## Unreleased
 
-_No changes yet._
+### Fixed
+- JSONB values are now exported as valid JSON. CSV previously emitted Python
+  dict repr (single quotes), which `COPY`/psql rejected with
+  `invalid input syntax for type json`; SQL format emitted them unquoted.
+  Encoding is type-aware (via `information_schema.columns.data_type`), so a
+  JSONB array is JSON-encoded while a SQL `ARRAY` keeps the array literal.
+- SQL-format data exports now quote `TIMESTAMP`/`TIMESTAMPTZ`/`DATE`/`TIME`
+  values. They were previously emitted bare, producing `syntax error at or
+  near ...` for timestamps and silently wrong arithmetic for dates.
+- Sequences (and views) returned by `SHOW TABLES` are no longer data-exported.
+  Previously they produced invalid files like
+  `INSERT INTO "...seq" () VALUES (0, 0, True)` and bogus CSV chunks that had
+  to be filtered out by hand.
 
 ## 0.6.0 — 2026-06-26
 

@@ -149,13 +149,16 @@ if [ "$MULTIREGION" = true ]; then
   "
 fi
 
-echo "📐 Creating non-public schema objects + a VECTOR column..."
+echo "📐 Creating non-public schema objects + VECTOR/JSONB columns + a sequence..."
 cockroach sql --insecure --host=localhost -d "$DB_NAME" -e "
   CREATE SCHEMA IF NOT EXISTS cpkit;
   CREATE TABLE cpkit.tasks (id INT PRIMARY KEY, name STRING);
   INSERT INTO cpkit.tasks VALUES (1,'a'),(2,'b'),(3,'c');
   CREATE TABLE embeddings (id INT PRIMARY KEY, embd VECTOR(3));
   INSERT INTO embeddings VALUES (1,'[1.5,2,3.25]'),(2,'[0,0,0]');
+  CREATE TABLE docs (id INT PRIMARY KEY, attrs JSONB, created_dtm TIMESTAMPTZ, created_d DATE);
+  INSERT INTO docs VALUES (1, '{\"s3_keys\": {\"a\": []}}', '2021-08-02 15:39:18.5+00', '2021-08-02');
+  CREATE SEQUENCE doc_key_seq;
 "
 
 echo "📊 Inserting test data..."
@@ -191,6 +194,14 @@ test -f "$BASE_OUT_DIR/${DB_NAME}.cpkit.tasks.manifest.json" \
 test -f "$BASE_OUT_DIR/${DB_NAME}.public.embeddings.manifest.json" \
   && echo "✅ VECTOR table (embeddings) exported" \
   || { echo "❌ VECTOR table NOT exported"; exit 1; }
+if ls "$BASE_OUT_DIR"/*doc_key_seq* >/dev/null 2>&1; then
+  echo "❌ sequence was data-exported (must not be)"; exit 1
+else
+  echo "✅ sequence not data-exported"
+fi
+grep -q '""s3_keys""' "$BASE_OUT_DIR/${DB_NAME}.public.docs_001.csv" \
+  && echo "✅ JSONB exported as valid JSON (double-quoted)" \
+  || { echo "❌ JSONB not valid JSON in CSV"; cat "$BASE_OUT_DIR/${DB_NAME}.public.docs_001.csv"; exit 1; }
 
 echo "🕒 Testing --as-of-system-time (consistent snapshot)..."
 $CRDB_DUMP --verbose export --db="$DB_NAME" --tables=public.users \
@@ -248,7 +259,7 @@ $CRDB_DUMP --verbose load \
   --parallel-load
 
 echo "🔎 Verifying restored row counts..."
-for tbl in users logins cpkit.tasks embeddings; do
+for tbl in users logins cpkit.tasks embeddings docs; do
   CNT=$(cockroach sql --insecure --host=localhost -d "$DB_NAME" --format=csv -e "SELECT count(*) FROM $tbl" | tail -1)
   echo "  $tbl: $CNT rows"
   [ "$CNT" -gt 0 ] || { echo "❌ $tbl has no rows after restore"; exit 1; }
@@ -393,7 +404,7 @@ $CRDB_DUMP --verbose load \
   --resume-strict
 
 echo "🔎 Verifying S3-restored row counts..."
-for tbl in users logins cpkit.tasks embeddings; do
+for tbl in users logins cpkit.tasks embeddings docs; do
   CNT=$(cockroach sql --insecure --host=localhost -d "$DB_NAME" --format=csv -e "SELECT count(*) FROM $tbl" | tail -1)
   echo "  $tbl: $CNT rows"
   [ "$CNT" -gt 0 ] || { echo "❌ $tbl has no rows after S3 restore"; exit 1; }

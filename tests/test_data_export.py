@@ -6,7 +6,7 @@ from crdb_dump.export import data as data_mod
 
 
 def test_export_table_data_three_part_naming(tmp_path):
-    cols = [("id",), ("name",)]
+    cols = [("id", "INT8"), ("name", "STRING")]
     page1 = [(1, "a"), (2, "b")]
     conn = MagicMock()
     conn.__enter__.return_value = conn
@@ -36,7 +36,7 @@ def test_export_table_data_three_part_naming(tmp_path):
 
 
 def test_export_table_data_records_aost(tmp_path):
-    cols = [("id",)]
+    cols = [("id", "INT8")]
     page1 = [(1,)]
     captured = {"stmts": []}
     conn = MagicMock()
