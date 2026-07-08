@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+_No changes yet._
+
+## 0.6.1 — 2026-07-08
+
 ### Fixed
 - JSONB values are now exported as valid JSON. CSV previously emitted Python
   dict repr (single quotes), which `COPY`/psql rejected with
