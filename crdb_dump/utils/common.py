@@ -1,6 +1,8 @@
 import re
+import json
 import time
 import random
+import datetime
 import functools
 import psycopg2
 from sqlalchemy import exc, text
@@ -39,7 +41,11 @@ def aost_clause(resolved_value):
     return f" AS OF SYSTEM TIME '{escaped}'"
 
 
-def to_sql_literal(val):
+def _is_json_type(data_type):
+    return data_type is not None and "JSON" in str(data_type).upper()
+
+
+def to_sql_literal(val, data_type=None):
     if val is None:
         return 'NULL'
 
@@ -48,6 +54,17 @@ def to_sql_literal(val):
 
     if isinstance(val, (bytes, bytearray)):
         return f"decode('{val.hex()}', 'hex')"
+
+    # JSONB/JSON values arrive as Python dicts (objects) or lists (arrays).
+    # Encode as a quoted JSON literal — never Python repr, never an array literal.
+    if isinstance(val, dict) or (_is_json_type(data_type) and isinstance(val, list)):
+        escaped = json.dumps(val).replace("'", "''")
+        return f"'{escaped}'"
+
+    # Temporal types must be quoted: str(date) like 2021-08-02 is otherwise
+    # parsed as integer arithmetic, and timestamps are a syntax error.
+    if isinstance(val, (datetime.datetime, datetime.date, datetime.time)):
+        return f"'{val}'"
 
     if isinstance(val, list):
         def serialize_item(v):
@@ -70,13 +87,18 @@ def to_sql_literal(val):
 
     return str(val)
 
-def to_csv_literal(val):
+def to_csv_literal(val, data_type=None):
     # BYTES must use the bytea hex format ('\x' prefix) so COPY ... WITH CSV
     # decodes them back to bytes instead of storing the literal hex characters.
     if isinstance(val, memoryview):
         return r'\x' + val.tobytes().hex()
     if isinstance(val, (bytes, bytearray)):
         return r'\x' + val.hex()
+    # JSONB/JSON values arrive as Python dicts (objects) or lists (arrays);
+    # csv.writer would otherwise emit Python repr (single quotes) which COPY
+    # rejects as invalid JSON.
+    if isinstance(val, dict) or (_is_json_type(data_type) and isinstance(val, list)):
+        return json.dumps(val)
     if isinstance(val, list):
         def escape_csv_array_item(item):
             if item is None:

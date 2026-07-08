@@ -29,10 +29,14 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                 # column and chunk queries while still giving a consistent snapshot.
                 conn = conn.execution_options(isolation_level="AUTOCOMMIT")
             cols_res = conn.execute(text(
-                "SELECT column_name FROM information_schema.columns" + clause +
+                "SELECT column_name, data_type FROM information_schema.columns" + clause +
                 " WHERE table_name = :t AND table_schema = :s ORDER BY ordinal_position"
             ), {"t": obj.table, "s": obj.schema})
-            columns = [row[0] for row in cols_res]
+            col_rows = list(cols_res)
+            columns = [row[0] for row in col_rows]
+            # Column types let the encoders distinguish e.g. a JSONB array
+            # (JSON-encode) from a SQL ARRAY (array literal).
+            col_types = [row[1] for row in col_rows]
             if order:
                 for col in order.split(','):
                     if col not in columns:
@@ -85,12 +89,15 @@ def export_table_data(engine, table, out_dir, export_format, split, limit, compr
                     with open_func(out_path, mode, newline='') as f:
                         writer = csv.writer(f, lineterminator='\n')
                         writer.writerow(columns)
-                        writer.writerows([[to_csv_literal(v) for v in row] for row in rows])
+                        writer.writerows(
+                            [[to_csv_literal(v, t) for v, t in zip(row, col_types)]
+                             for row in rows])
                 elif export_format == 'sql':
                     col_list = ", ".join(quote_ident(c) for c in columns)
                     with open(out_path, 'w') as f:
                         for row in rows:
-                            vals = ", ".join(to_sql_literal(v) for v in row)
+                            vals = ", ".join(
+                                to_sql_literal(v, t) for v, t in zip(row, col_types))
                             f.write(f"INSERT INTO {obj.fq_quoted()} ({col_list}) VALUES ({vals});\n")
 
                 checksum = file_checksum(out_path)

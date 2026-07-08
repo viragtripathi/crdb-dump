@@ -97,6 +97,10 @@ def collect_objects(engine, db, obj_type, logger, retry_count, retry_delay):
                     continue
                 if not name:
                     continue
+                # SHOW TABLES also returns sequences and views (type in column 2);
+                # only actual tables may be data-exported.
+                if obj_type == 'table' and len(row) > 2 and row[2] != 'table':
+                    continue
                 if obj_type == 'type':
                     enum_check = conn.execute(
                         text("SELECT 1 FROM pg_type WHERE typname = :n AND typtype = 'e'"),
